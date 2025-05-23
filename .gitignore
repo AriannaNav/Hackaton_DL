@@ -4,5 +4,5 @@ __pycache__/
 .DS_Store
 logs/
 checkpoints/
-submission/datasets/
+submission/
 datasets/
