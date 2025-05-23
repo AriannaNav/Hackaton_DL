@@ -1,0 +1,12 @@
+torch==2.0.0
+torchvision==0.15.1
+torchaudio==2.0.1
+torch-geometric==2.6.1
+tqdm==4.67.1
+numpy
+aiohttp
+fsspec
+pyparsing
+psutil
+jinja2
+requests
