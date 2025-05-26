@@ -40,7 +40,7 @@ def main(args):
     train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
     test_dataset = GraphDataset(args.test_path, transform=add_node_features)
 
-    batch_size = 64
+    batch_size = 16
 
     if train_dataset is not None:
         # Split in train/validation
