@@ -10,3 +10,6 @@ pyparsing
 psutil
 jinja2
 requests
+pandas
+scikit-learn
+matplotlib
