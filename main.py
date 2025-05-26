@@ -26,7 +26,8 @@ def extract_embeddings(model, data_loader, device):
 def main(args):
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    test_set_name = args.test_path.split("/")[-2]  # es: "A"
+    
     input_dim = 4
     edge_dim = 7
     hidden_dim = 64
@@ -78,7 +79,7 @@ def main(args):
         report = classification_report(test_labels, y_pred)
         print("\nClassification Report:\n", report)
 
-    test_set_name = args.test_path.split("/")[-2]  # es: "A"
+    
     os.makedirs("submission", exist_ok=True)
     df = pd.DataFrame({"id": list(range(len(y_pred))), "pred": y_pred})
     df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
