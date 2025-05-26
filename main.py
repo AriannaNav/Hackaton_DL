@@ -51,11 +51,20 @@ def main(args):
     test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
     if train_loader:
-        criterion = torch.nn.CrossEntropyLoss()
-        for epoch in range(args.epochs):
-            train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
-            val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
-            print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+            criterion = torch.nn.CrossEntropyLoss()
+            for epoch in range(args.epochs):
+                train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
+                val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
+                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+
+    
+                save_every = 5  
+                if (epoch + 1) == 1 or (epoch + 1) % save_every == 0:
+                    checkpoints_dir = os.path.join("checkpoints", test_set_name)
+                    os.makedirs(checkpoints_dir, exist_ok=True)
+                    checkpoint_path = os.path.join(checkpoints_dir, f"model_epoch_{epoch+1:02d}.pt")
+                    torch.save(model.state_dict(), checkpoint_path)
+                    print(f" Checkpoint salvato: {checkpoint_path}")
 
     print("Extracting embeddings...")
     train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size), device)
