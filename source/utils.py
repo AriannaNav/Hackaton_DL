@@ -2,7 +2,6 @@ import random
 import numpy as np
 import torch
 import pandas as pd
-import matplotlib.pyplot as plt
 from sklearn.metrics import f1_score, precision_score, recall_score
 from tqdm import tqdm
 
@@ -11,7 +10,6 @@ def set_seed(seed=42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -28,10 +26,8 @@ def add_node_features(data):
     out_deg = torch.bincount(row, minlength=data.num_nodes).float().view(-1, 1)
     out_deg = out_deg / (out_deg.max() + 1e-5)
 
-    num_edges = data.edge_index.size(1)
     norm_node_id = torch.arange(data.num_nodes).float().view(-1, 1) / (data.num_nodes + 1e-5)
 
-    # Concateno tutte le feature
     data.x = torch.cat([deg, in_deg, out_deg, norm_node_id], dim=1)
     return data
 
