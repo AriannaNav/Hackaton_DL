@@ -11,11 +11,13 @@ class ImprovedGINE(torch.nn.Module):
         self.bns = ModuleList()
 
         nn1 = Sequential(Linear(edge_dim, hidden_dim), ReLU(), Linear(hidden_dim, hidden_dim))
-        self.convs.append(GINEConv(nn1, edge_dim=edge_dim))  # ✅ edge_dim specificato
+        self.convs.append(GINEConv(nn1, edge_dim=edge_dim))  # ✅ AGGIUNTO
+
         self.bns.append(BatchNorm1d(hidden_dim))
 
         nn2 = Sequential(Linear(edge_dim, hidden_dim), ReLU(), Linear(hidden_dim, hidden_dim))
-        self.convs.append(GINEConv(nn2, edge_dim=edge_dim))  # ✅ edge_dim specificato
+        self.convs.append(GINEConv(nn2, edge_dim=edge_dim))  # ✅ AGGIUNTO
+
         self.bns.append(BatchNorm1d(hidden_dim))
 
         self.dropout = Dropout(p=dropout_p)
