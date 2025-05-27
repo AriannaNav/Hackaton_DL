@@ -6,18 +6,18 @@ from torch_geometric.nn import GINEConv, global_mean_pool
 class ImprovedGINE(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, edge_dim=7, dropout_p=0.4):
         super(ImprovedGINE, self).__init__()
-        
+
+        self.x_encoder = Linear(input_dim, hidden_dim)  # 🔥 aggiunto per trasformare x da 4 a 64
+
         self.convs = ModuleList()
         self.bns = ModuleList()
 
         nn1 = Sequential(Linear(edge_dim, hidden_dim), ReLU(), Linear(hidden_dim, hidden_dim))
-        self.convs.append(GINEConv(nn1, edge_dim=edge_dim))  # ✅ AGGIUNTO
-
+        self.convs.append(GINEConv(nn1, edge_dim=edge_dim))
         self.bns.append(BatchNorm1d(hidden_dim))
 
         nn2 = Sequential(Linear(edge_dim, hidden_dim), ReLU(), Linear(hidden_dim, hidden_dim))
-        self.convs.append(GINEConv(nn2, edge_dim=edge_dim))  # ✅ AGGIUNTO
-
+        self.convs.append(GINEConv(nn2, edge_dim=edge_dim))
         self.bns.append(BatchNorm1d(hidden_dim))
 
         self.dropout = Dropout(p=dropout_p)
@@ -26,6 +26,7 @@ class ImprovedGINE(torch.nn.Module):
 
     def forward(self, data):
         x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
+        x = self.x_encoder(x)  # encode le feature nodali
 
         for conv, bn in zip(self.convs, self.bns):
             x = conv(x, edge_index, edge_attr)
@@ -42,6 +43,7 @@ class ImprovedGINE(torch.nn.Module):
 
     def extract_embedding(self, data):
         x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
+        x = self.x_encoder(x)  # encode le feature nodali
 
         for conv, _ in zip(self.convs, self.bns):
             x = conv(x, edge_index, edge_attr)
