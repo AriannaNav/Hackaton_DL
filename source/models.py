@@ -7,26 +7,28 @@ class ImprovedGINE(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, edge_dim=7, dropout_p=0.4):
         super(ImprovedGINE, self).__init__()
 
-        self.x_encoder = Linear(input_dim, hidden_dim)  # 🔥 encode node features
+        self.x_encoder = Linear(input_dim, hidden_dim)
+        self.edge_encoder = Linear(edge_dim, hidden_dim)  # 🔥 trasforma edge_attr da 7 → 64
 
         self.convs = ModuleList()
         self.bns = ModuleList()
 
-        # 🔥 questo encoder serve per rendere edge_attr compatibile (da 7 → 64)
-        edge_encoder_1 = Sequential(
-            Linear(edge_dim, hidden_dim),
+        nn1 = Sequential(
+            Linear(hidden_dim, hidden_dim),
             ReLU(),
             Linear(hidden_dim, hidden_dim)
         )
-        self.convs.append(GINEConv(nn=edge_encoder_1, edge_dim=edge_dim))
+        self.convs.append(GINEConv(nn1))  # ❌ Niente più edge_dim
+
         self.bns.append(BatchNorm1d(hidden_dim))
 
-        edge_encoder_2 = Sequential(
-            Linear(edge_dim, hidden_dim),
+        nn2 = Sequential(
+            Linear(hidden_dim, hidden_dim),
             ReLU(),
             Linear(hidden_dim, hidden_dim)
         )
-        self.convs.append(GINEConv(nn=edge_encoder_2, edge_dim=edge_dim))
+        self.convs.append(GINEConv(nn2))
+
         self.bns.append(BatchNorm1d(hidden_dim))
 
         self.dropout = Dropout(p=dropout_p)
@@ -35,10 +37,11 @@ class ImprovedGINE(torch.nn.Module):
 
     def forward(self, data):
         x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
-        x = self.x_encoder(x)  # 🔁 encode node feature da 4 a 64
+        x = self.x_encoder(x)                  # [num_nodes, 64]
+        edge_attr = self.edge_encoder(edge_attr)  # [num_edges, 64]
 
         for conv, bn in zip(self.convs, self.bns):
-            x = conv(x, edge_index, edge_attr)  # ora funziona
+            x = conv(x, edge_index, edge_attr)
             x = bn(x)
             x = F.relu(x)
             x = self.dropout(x)
@@ -53,6 +56,7 @@ class ImprovedGINE(torch.nn.Module):
     def extract_embedding(self, data):
         x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
         x = self.x_encoder(x)
+        edge_attr = self.edge_encoder(edge_attr)
 
         for conv, _ in zip(self.convs, self.bns):
             x = conv(x, edge_index, edge_attr)
