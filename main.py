@@ -1,4 +1,4 @@
-# ✅ FILE: main.py (MODIFICATO)
+# ✅ FILE: main.py (CORRETTO)
 import argparse
 import os
 import torch
@@ -7,7 +7,7 @@ from torch_geometric.loader import DataLoader
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
-from source.models import ImprovedGCN as ImprovedNNConv # to avoid changes
+from source.models import ImprovedGCN as ImprovedNNConv  # alias per compatibilità
 from source.utils import set_seed, add_node_features, train, evaluate
 
 def extract_embeddings(model, data_loader, device):
@@ -29,10 +29,9 @@ def main(args):
     test_set_name = args.test_path.split("/")[-2]  # es: "A"
 
     input_dim = 4
-    edge_dim = 7
     hidden_dim = 64
     output_dim = 6
-    model = ImprovedNNConv(input_dim, edge_dim, hidden_dim, output_dim).to(device)
+    model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
 
     train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
