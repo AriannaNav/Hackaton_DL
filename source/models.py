@@ -7,17 +7,26 @@ class ImprovedGINE(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, edge_dim=7, dropout_p=0.4):
         super(ImprovedGINE, self).__init__()
 
-        self.x_encoder = Linear(input_dim, hidden_dim)  # 🔥 aggiunto per trasformare x da 4 a 64
+        self.x_encoder = Linear(input_dim, hidden_dim)  # 🔥 encode node features
 
         self.convs = ModuleList()
         self.bns = ModuleList()
 
-        nn1 = Sequential(Linear(edge_dim, hidden_dim), ReLU(), Linear(hidden_dim, hidden_dim))
-        self.convs.append(GINEConv(nn1, edge_dim=edge_dim))
+        # 🔥 questo encoder serve per rendere edge_attr compatibile (da 7 → 64)
+        edge_encoder_1 = Sequential(
+            Linear(edge_dim, hidden_dim),
+            ReLU(),
+            Linear(hidden_dim, hidden_dim)
+        )
+        self.convs.append(GINEConv(nn=edge_encoder_1, edge_dim=edge_dim))
         self.bns.append(BatchNorm1d(hidden_dim))
 
-        nn2 = Sequential(Linear(edge_dim, hidden_dim), ReLU(), Linear(hidden_dim, hidden_dim))
-        self.convs.append(GINEConv(nn2, edge_dim=edge_dim))
+        edge_encoder_2 = Sequential(
+            Linear(edge_dim, hidden_dim),
+            ReLU(),
+            Linear(hidden_dim, hidden_dim)
+        )
+        self.convs.append(GINEConv(nn=edge_encoder_2, edge_dim=edge_dim))
         self.bns.append(BatchNorm1d(hidden_dim))
 
         self.dropout = Dropout(p=dropout_p)
@@ -26,10 +35,10 @@ class ImprovedGINE(torch.nn.Module):
 
     def forward(self, data):
         x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
-        x = self.x_encoder(x)  # encode le feature nodali
+        x = self.x_encoder(x)  # 🔁 encode node feature da 4 a 64
 
         for conv, bn in zip(self.convs, self.bns):
-            x = conv(x, edge_index, edge_attr)
+            x = conv(x, edge_index, edge_attr)  # ora funziona
             x = bn(x)
             x = F.relu(x)
             x = self.dropout(x)
@@ -43,7 +52,7 @@ class ImprovedGINE(torch.nn.Module):
 
     def extract_embedding(self, data):
         x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
-        x = self.x_encoder(x)  # encode le feature nodali
+        x = self.x_encoder(x)
 
         for conv, _ in zip(self.convs, self.bns):
             x = conv(x, edge_index, edge_attr)
