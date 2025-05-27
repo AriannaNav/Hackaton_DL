@@ -3,26 +3,12 @@ import os
 import torch
 import pandas as pd
 from torch_geometric.loader import DataLoader
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
 from source.models import ImprovedGINE as ImprovedNNConv
 from source.utils import set_seed, add_node_features, train, evaluate
 from collections import Counter
 from torch.utils.data import WeightedRandomSampler
-
-def extract_embeddings(model, data_loader, device):
-    model.eval()
-    embeddings = []
-    labels = []
-    with torch.no_grad():
-        for data in data_loader:
-            data = data.to(device)
-            emb = model.extract_embedding(data)
-            embeddings.append(emb.cpu())
-            if data.y is not None:
-                labels.append(data.y.cpu())
-    return torch.cat(embeddings, dim=0), torch.cat(labels, dim=0) if len(labels) > 0 else None
 
 def compute_class_weights(dataset, num_classes=6):
     labels = [data.y.item() for data in dataset if data.y is not None]
@@ -43,7 +29,7 @@ def make_balanced_sampler(dataset, num_classes=6):
 def main(args):
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    test_set_name = args.test_path.split("/")[-2]  # es: "A"
+    test_set_name = args.test_path.split("/")[-2]
 
     # === Model setup ===
     input_dim = 4
@@ -62,16 +48,12 @@ def main(args):
         train_size = len(train_dataset) - val_size
         train_set, val_set = torch.utils.data.random_split(train_dataset, [train_size, val_size])
 
-        # === Sampler bilanciato per batch equilibrati
         sampler = make_balanced_sampler(train_set)
         train_loader = DataLoader(train_set, batch_size=batch_size, sampler=sampler, num_workers=2)
-
         val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=2)
 
-        # === Loss pesata dinamicamente
         weights = compute_class_weights(train_set)
         criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
-
     else:
         train_loader = val_loader = None
         criterion = None
@@ -90,7 +72,6 @@ def main(args):
                 val_loss, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
                 print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
-            # === Save Checkpoint ===
             if (epoch + 1) == 1 or (epoch + 1) % 5 == 0:
                 checkpoints_dir = os.path.join("checkpoints", test_set_name)
                 os.makedirs(checkpoints_dir, exist_ok=True)
@@ -98,22 +79,19 @@ def main(args):
                 torch.save(model.state_dict(), checkpoint_path)
                 print(f"✅ Checkpoint salvato: {checkpoint_path}")
 
-    # === Embedding + Classifier ===
-    print("Extracting embeddings...")
-    train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
-    test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
+    # === Prediction diretto su test set ===
+    print("Predicting on test set...")
+    model.eval()
+    all_preds = []
+    with torch.no_grad():
+        for data in test_loader:
+            data = data.to(device)
+            logits = model(data)
+            preds = logits.argmax(dim=1)
+            all_preds.extend(preds.cpu().tolist())
 
-    clf = LogisticRegression(C=0.01, penalty='l2', solver='lbfgs', max_iter=1000)
-    clf.fit(train_embeddings, train_labels)
-    y_pred = clf.predict(test_embeddings)
-
-    if test_labels is not None:
-        report = classification_report(test_labels, y_pred)
-        print("\nClassification Report:\n", report)
-
-    # === Save Submission ===
     os.makedirs("submission", exist_ok=True)
-    df = pd.DataFrame({"id": list(range(len(y_pred))), "pred": y_pred})
+    df = pd.DataFrame({"id": list(range(len(all_preds))), "pred": all_preds})
     df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
     print(f"Predictions saved to submission/testset_{test_set_name}.csv")
 
