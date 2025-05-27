@@ -1,4 +1,3 @@
-# ✅ FILE: main.py (CORRETTO E FUNZIONANTE)
 import argparse
 import os
 import torch
@@ -7,7 +6,7 @@ from torch_geometric.loader import DataLoader
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
-from source.models import ImprovedGCN as ImprovedNNConv  # alias per compatibilità
+from source.models import ImprovedGCN as ImprovedNNConv
 from source.utils import set_seed, add_node_features, train, evaluate
 
 def extract_embeddings(model, data_loader, device):
@@ -57,19 +56,17 @@ def main(args):
 
             if (epoch + 1) % 5 == 0 or (epoch + 1) == args.epochs:
                 val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
+                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
             else:
-                val_loss, val_acc = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
-                val_f1 = val_prec = val_rec = None
+                val_loss, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
+                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
-            print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
-
-            save_every = 5
-            if (epoch + 1) == 1 or (epoch + 1) % save_every == 0:
+            if (epoch + 1) == 1 or (epoch + 1) % 5 == 0:
                 checkpoints_dir = os.path.join("checkpoints", test_set_name)
                 os.makedirs(checkpoints_dir, exist_ok=True)
                 checkpoint_path = os.path.join(checkpoints_dir, f"model_epoch_{epoch+1:02d}.pt")
                 torch.save(model.state_dict(), checkpoint_path)
-                print(f"\u2705 Checkpoint salvato: {checkpoint_path}")
+                print(f"✅ Checkpoint salvato: {checkpoint_path}")
 
     print("Extracting embeddings...")
     train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
