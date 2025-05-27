@@ -8,6 +8,7 @@ from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
 from source.models import ImprovedGINE as ImprovedNNConv
 from source.utils import set_seed, add_node_features, train, evaluate
+from collections import Counter
 
 def extract_embeddings(model, data_loader, device):
     model.eval()
@@ -21,6 +22,15 @@ def extract_embeddings(model, data_loader, device):
             if data.y is not None:
                 labels.append(data.y.cpu())
     return torch.cat(embeddings, dim=0), torch.cat(labels, dim=0) if len(labels) > 0 else None
+
+def compute_class_weights(dataset, num_classes=6):
+    labels = [data.y.item() for data in dataset if data.y is not None]
+    label_counts = Counter(labels)
+    total = sum(label_counts.values())
+    freqs = torch.tensor([label_counts.get(i, 0) / total for i in range(num_classes)], dtype=torch.float32)
+    weights = 1.0 / (freqs + 1e-8)
+    weights = weights / weights.sum()
+    return weights
 
 def main(args):
     set_seed(42)
@@ -45,15 +55,16 @@ def main(args):
         train_set, val_set = torch.utils.data.random_split(train_dataset, [train_size, val_size])
         train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2)
         val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=2)
+
+        # === Compute class weights from training set ===
+        weights = compute_class_weights(train_set)
+        criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
+
     else:
         train_loader = val_loader = None
+        criterion = None
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
-
-    # === Weighted Loss Function ===
-    weights = torch.tensor([1/0.1210, 1/0.1704, 1/0.2932, 1/0.1755, 1/0.1741, 1/0.0658], dtype=torch.float32)
-    weights = weights / weights.sum()
-    criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
 
     # === Training ===
     if train_loader:
@@ -73,7 +84,7 @@ def main(args):
                 os.makedirs(checkpoints_dir, exist_ok=True)
                 checkpoint_path = os.path.join(checkpoints_dir, f"model_epoch_{epoch+1:02d}.pt")
                 torch.save(model.state_dict(), checkpoint_path)
-                print(f"Checkpoint salvato: {checkpoint_path}")
+                print(f"✅ Checkpoint salvato: {checkpoint_path}")
 
     # === Embedding + Classifier ===
     print("Extracting embeddings...")
