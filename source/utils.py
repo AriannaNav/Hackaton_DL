@@ -1,9 +1,12 @@
+# ✅ FILE: utils.py (OTTIMIZZATO + COMPLETO)
+import os
 import random
 import numpy as np
 import torch
 import pandas as pd
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
 from tqdm import tqdm
+
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -14,9 +17,9 @@ def set_seed(seed=42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
 def add_node_features(data):
     row, col = data.edge_index
-
     deg = torch.bincount(row, minlength=data.num_nodes).float().view(-1, 1)
     deg = deg / (deg.max() + 1e-5)
 
@@ -27,11 +30,11 @@ def add_node_features(data):
     out_deg = out_deg / (out_deg.max() + 1e-5)
 
     norm_node_id = torch.arange(data.num_nodes).float().view(-1, 1) / (data.num_nodes + 1e-5)
-
     data.x = torch.cat([deg, in_deg, out_deg, norm_node_id], dim=1)
     return data
 
-def train(data_loader, model, optimizer, criterion, device, save_checkpoints=False, checkpoint_path=None, current_epoch=None):
+
+def train(data_loader, model, optimizer, criterion, device):
     model.train()
     total_loss = 0
     correct = 0
@@ -44,17 +47,13 @@ def train(data_loader, model, optimizer, criterion, device, save_checkpoints=Fal
         loss.backward()
         optimizer.step()
 
-        total_loss += loss.item()
+        total_loss += loss.item() * data.num_graphs
         pred = output.argmax(dim=1)
         correct += (pred == data.y).sum().item()
-        total += data.y.size(0)
+        total += data.num_graphs
 
-    if save_checkpoints and checkpoint_path is not None and current_epoch is not None:
-        checkpoint_file = f"{checkpoint_path}_epoch_{current_epoch+1}.pth"
-        torch.save(model.state_dict(), checkpoint_file)
-        print(f"Checkpoint saved at {checkpoint_file}")
+    return total_loss / total, correct / total
 
-    return total_loss / len(data_loader), correct / total
 
 def evaluate(data_loader, model, device, criterion=None, calculate_metrics=False):
     model.eval()
@@ -70,15 +69,19 @@ def evaluate(data_loader, model, device, criterion=None, calculate_metrics=False
                 all_labels.extend(data.y.cpu().tolist())
             if criterion is not None:
                 loss = criterion(output, data.y)
-                total_loss += loss.item()
-    avg_loss = total_loss / len(data_loader) if criterion is not None else None
+                total_loss += loss.item() * data.num_graphs
+
+    avg_loss = total_loss / len(data_loader.dataset) if criterion is not None else None
+
     if calculate_metrics and all_labels:
         f1 = f1_score(all_labels, all_preds, average='macro')
         precision = precision_score(all_labels, all_preds, average='macro', zero_division=0)
         recall = recall_score(all_labels, all_preds, average='macro', zero_division=0)
-        accuracy = sum([p == l for p, l in zip(all_preds, all_labels)]) / len(all_labels)
+        accuracy = accuracy_score(all_labels, all_preds)
         return avg_loss, accuracy, f1, precision, recall
+
     return avg_loss, all_preds
+
 
 def save_predictions(preds, test_path):
     import os
@@ -89,6 +92,7 @@ def save_predictions(preds, test_path):
     df = pd.DataFrame({"id": list(range(len(preds))), "pred": preds})
     df.to_csv(output_csv_path, index=False)
     print(f"Predictions saved to {output_csv_path}")
+
 
 def plot_training_progress(train_losses, train_acc, val_losses, val_acc, output_dir):
     import matplotlib.pyplot as plt
@@ -106,5 +110,6 @@ def plot_training_progress(train_losses, train_acc, val_losses, val_acc, output_
     plt.legend()
     plt.title("Accuracy over epochs")
 
+    os.makedirs(output_dir, exist_ok=True)
     plt.savefig(f"{output_dir}/training_progress.png")
     plt.close()
