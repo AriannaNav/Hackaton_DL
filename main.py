@@ -6,7 +6,7 @@ from torch_geometric.loader import DataLoader
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
-from source.models import ImprovedGCN as ImprovedNNConv
+from source.models import ImprovedGINE as ImprovedNNConv
 from source.utils import set_seed, add_node_features, train, evaluate
 
 def extract_embeddings(model, data_loader, device):
@@ -27,15 +27,16 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_set_name = args.test_path.split("/")[-2]  # es: "A"
 
+    # === Model setup ===
     input_dim = 4
     hidden_dim = 64
     output_dim = 6
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
 
+    # === Dataset loading ===
     train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
     test_dataset = GraphDataset(args.test_path, transform=add_node_features)
-
     batch_size = 32
 
     if train_dataset:
@@ -49,8 +50,13 @@ def main(args):
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
 
+    # === Weighted Loss Function ===
+    weights = torch.tensor([1/0.1210, 1/0.1704, 1/0.2932, 1/0.1755, 1/0.1741, 1/0.0658], dtype=torch.float32)
+    weights = weights / weights.sum()
+    criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
+
+    # === Training ===
     if train_loader:
-        criterion = torch.nn.CrossEntropyLoss()
         for epoch in range(args.epochs):
             train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
 
@@ -61,13 +67,15 @@ def main(args):
                 val_loss, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
                 print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
+            # === Save Checkpoint ===
             if (epoch + 1) == 1 or (epoch + 1) % 5 == 0:
                 checkpoints_dir = os.path.join("checkpoints", test_set_name)
                 os.makedirs(checkpoints_dir, exist_ok=True)
                 checkpoint_path = os.path.join(checkpoints_dir, f"model_epoch_{epoch+1:02d}.pt")
                 torch.save(model.state_dict(), checkpoint_path)
-                print(f"✅ Checkpoint salvato: {checkpoint_path}")
+                print(f"Checkpoint salvato: {checkpoint_path}")
 
+    # === Embedding + Classifier ===
     print("Extracting embeddings...")
     train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
     test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
@@ -80,6 +88,7 @@ def main(args):
         report = classification_report(test_labels, y_pred)
         print("\nClassification Report:\n", report)
 
+    # === Save Submission ===
     os.makedirs("submission", exist_ok=True)
     df = pd.DataFrame({"id": list(range(len(y_pred))), "pred": y_pred})
     df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)

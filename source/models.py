@@ -1,25 +1,33 @@
-# ✅ FILE: models.py (OTTIMIZZATO)
 import torch
 import torch.nn.functional as F
-from torch.nn import Linear, ModuleList, Dropout
-from torch_geometric.nn import GCNConv, global_mean_pool
+from torch.nn import Linear, ModuleList, Dropout, BatchNorm1d, Sequential, ReLU
+from torch_geometric.nn import GINEConv, global_mean_pool
 
-class ImprovedGCN(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
-        super(ImprovedGCN, self).__init__()
+class ImprovedGINE(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, edge_dim=7, dropout_p=0.4):
+        super(ImprovedGINE, self).__init__()
+        
         self.convs = ModuleList()
-        self.convs.append(GCNConv(input_dim, hidden_dim))
-        self.convs.append(GCNConv(hidden_dim, hidden_dim))
+        self.bns = ModuleList()
 
-        self.dropout = Dropout(p=0.3)
+        nn1 = Sequential(Linear(edge_dim, hidden_dim), ReLU(), Linear(hidden_dim, hidden_dim))
+        self.convs.append(GINEConv(nn1))
+        self.bns.append(BatchNorm1d(hidden_dim))
+
+        nn2 = Sequential(Linear(edge_dim, hidden_dim), ReLU(), Linear(hidden_dim, hidden_dim))
+        self.convs.append(GINEConv(nn2))
+        self.bns.append(BatchNorm1d(hidden_dim))
+
+        self.dropout = Dropout(p=dropout_p)
         self.lin1 = Linear(hidden_dim, hidden_dim)
         self.lin2 = Linear(hidden_dim, output_dim)
 
     def forward(self, data):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
+        x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
 
-        for conv in self.convs:
-            x = conv(x, edge_index)
+        for conv, bn in zip(self.convs, self.bns):
+            x = conv(x, edge_index, edge_attr)
+            x = bn(x)
             x = F.relu(x)
             x = self.dropout(x)
 
@@ -31,10 +39,10 @@ class ImprovedGCN(torch.nn.Module):
         return x
 
     def extract_embedding(self, data):
-        x, edge_index, batch = data.x, data.edge_index, data.batch
+        x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
 
-        for conv in self.convs:
-            x = conv(x, edge_index)
+        for conv, _ in zip(self.convs, self.bns):
+            x = conv(x, edge_index, edge_attr)
             x = F.relu(x)
 
         x = global_mean_pool(x, batch)
