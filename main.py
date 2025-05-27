@@ -1,4 +1,4 @@
-# ✅ FILE: main.py (CORRETTO)
+# ✅ FILE: main.py (CORRETTO E FUNZIONANTE)
 import argparse
 import os
 import torch
@@ -58,7 +58,8 @@ def main(args):
             if (epoch + 1) % 5 == 0 or (epoch + 1) == args.epochs:
                 val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
             else:
-                val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
+                val_loss, val_acc = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
+                val_f1 = val_prec = val_rec = None
 
             print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
