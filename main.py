@@ -9,6 +9,7 @@ from source.load_data import GraphDataset
 from source.models import ImprovedGINE as ImprovedNNConv
 from source.utils import set_seed, add_node_features, train, evaluate
 from collections import Counter
+from torch.utils.data import WeightedRandomSampler
 
 def extract_embeddings(model, data_loader, device):
     model.eval()
@@ -32,6 +33,13 @@ def compute_class_weights(dataset, num_classes=6):
     weights = weights / weights.sum()
     return weights
 
+def make_balanced_sampler(dataset, num_classes=6):
+    labels = [data.y.item() for data in dataset if data.y is not None]
+    label_counts = Counter(labels)
+    weights_per_class = {cls: 1.0 / count for cls, count in label_counts.items()}
+    sample_weights = [weights_per_class[data.y.item()] for data in dataset]
+    return WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
+
 def main(args):
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -53,10 +61,14 @@ def main(args):
         val_size = int(0.2 * len(train_dataset))
         train_size = len(train_dataset) - val_size
         train_set, val_set = torch.utils.data.random_split(train_dataset, [train_size, val_size])
-        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2)
+
+        # === Sampler bilanciato per batch equilibrati
+        sampler = make_balanced_sampler(train_set)
+        train_loader = DataLoader(train_set, batch_size=batch_size, sampler=sampler, num_workers=2)
+
         val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=2)
 
-        # === Compute class weights from training set ===
+        # === Loss pesata dinamicamente
         weights = compute_class_weights(train_set)
         criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
 
