@@ -6,9 +6,17 @@ from torch_geometric.loader import DataLoader
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
 from source.models import ImprovedGAT as ImprovedNNConv
-from source.utils import set_seed, add_node_features, train, evaluate, FocalLoss, compute_class_weights, make_balanced_sampler
-from collections import Counter
-from torch.utils.data import WeightedRandomSampler
+from source.utils import (
+    set_seed,
+    add_node_features,
+    train,
+    evaluate,
+    FocalLoss,
+    compute_class_weights,
+    make_balanced_sampler,
+    save_predictions,
+    plot_training_progress
+)
 from torch.optim.lr_scheduler import StepLR
 
 
@@ -17,7 +25,7 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_set_name = args.test_path.split("/")[-2]
 
-    input_dim = 4
+    input_dim = 5  # Aggiornato da 4 a 5 per includere la nuova feature 'ones'
     hidden_dim = 64
     output_dim = 6
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
@@ -27,6 +35,8 @@ def main(args):
     train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
     test_dataset = GraphDataset(args.test_path, transform=add_node_features)
     batch_size = 32
+
+    train_losses, train_accs, val_losses, val_accs = [], [], [], []
 
     if train_dataset:
         val_size = int(0.2 * len(train_dataset))
@@ -38,7 +48,6 @@ def main(args):
         val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=2)
 
         weights = compute_class_weights(train_set)
-        # Use FocalLoss with class weights
         criterion = FocalLoss(alpha=1, gamma=2)
     else:
         train_loader = val_loader = None
@@ -46,7 +55,6 @@ def main(args):
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
 
-    # === Training ===
     best_val_acc = 0.0
     best_model_path = ""
 
@@ -55,9 +63,15 @@ def main(args):
             train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
             scheduler.step()
 
+            train_losses.append(train_loss)
+            train_accs.append(train_acc)
+
             if (epoch + 1) % 5 == 0 or (epoch + 1) == args.epochs:
                 val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
                 print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
+
+                val_losses.append(val_loss)
+                val_accs.append(val_acc)
 
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
@@ -70,12 +84,13 @@ def main(args):
                 val_loss, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
                 print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
-    # === Load best model ===
+        # Plot training progress
+        plot_training_progress(train_losses, train_accs, val_losses, val_accs, output_dir="results")
+
     if os.path.exists(best_model_path):
         model.load_state_dict(torch.load(best_model_path))
         print(f"\n🔄 Loaded best model from {best_model_path}")
 
-    # === Predict test ===
     print("Predicting on test set...")
     model.eval()
     all_preds = []
@@ -86,10 +101,7 @@ def main(args):
             preds = logits.argmax(dim=1)
             all_preds.extend(preds.cpu().tolist())
 
-    os.makedirs("submission", exist_ok=True)
-    df = pd.DataFrame({"id": list(range(len(all_preds))), "pred": all_preds})
-    df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
-    print(f"Predictions saved to submission/testset_{test_set_name}.csv")
+    save_predictions(all_preds, args.test_path)
 
 
 if __name__ == "__main__":
