@@ -5,114 +5,88 @@ import pandas as pd
 from torch_geometric.loader import DataLoader
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
-from source.models import ImprovedNNConv
-from source.utils import (
-    set_seed,
-    add_node_features,
-    train,
-    evaluate,
-    compute_class_weights,
-    make_balanced_sampler,
-    save_predictions,
-    plot_training_progress
-)
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from source.models import ImprovedGAT as ImprovedNNConv
+from source.utils import set_seed, add_node_features, train, evaluate
+from collections import Counter
+from torch.utils.data import WeightedRandomSampler
 
+def compute_class_weights(dataset, num_classes=6):
+    labels = [data.y.item() for data in dataset if data.y is not None]
+    label_counts = Counter(labels)
+    total = sum(label_counts.values())
+    freqs = torch.tensor([label_counts.get(i, 0) / total for i in range(num_classes)], dtype=torch.float32)
+    weights = 1.0 / (freqs + 1e-8)
+    weights = weights / weights.sum()
+    return weights
+
+def make_balanced_sampler(dataset, num_classes=6):
+    labels = [data.y.item() for data in dataset if data.y is not None]
+    label_counts = Counter(labels)
+    weights_per_class = {cls: 1.0 / count for cls, count in label_counts.items()}
+    sample_weights = [weights_per_class[data.y.item()] for data in dataset]
+    return WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
 
 def main(args):
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_set_name = args.test_path.split("/")[-2]
 
-    # Carica dataset
-    train_dataset = GraphDataset(args.train_path) if args.train_path else None
-    test_dataset = GraphDataset(args.test_path)
+    input_dim = 4
+    hidden_dim = 64
+    output_dim = 6
+    model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
 
-    # Aggiungi feature ai nodi
-    if train_dataset:
-        for i in range(len(train_dataset)):
-            train_dataset.graphs[i] = add_node_features(train_dataset.graphs[i])
-    for i in range(len(test_dataset)):
-        test_dataset.graphs[i] = add_node_features(test_dataset.graphs[i])
-
+    train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
+    test_dataset = GraphDataset(args.test_path, transform=add_node_features)
     batch_size = 32
-
-    sample_graph = train_dataset[0] if train_dataset else test_dataset[0]
-    if not hasattr(sample_graph, 'edge_attr') or sample_graph.edge_attr is None:
-        for dataset in [train_dataset, test_dataset]:
-            if dataset:
-                for data in dataset:
-                    num_edges = data.edge_index.shape[1]
-                    data.edge_attr = torch.ones((num_edges, 1))  # vettore costante 1D
-
-    input_dim = sample_graph.x.shape[1]
-    edge_attr_dim = sample_graph.edge_attr.shape[1] 
-    model = ImprovedNNConv(input_dim=input_dim, edge_dim=edge_attr_dim, hidden_dim=256, output_dim=6, dropout_p=0.5).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
-
-    train_losses, train_accs, val_losses, val_accs = [], [], [], []
 
     if train_dataset:
         val_size = int(0.2 * len(train_dataset))
         train_size = len(train_dataset) - val_size
         train_set, val_set = torch.utils.data.random_split(train_dataset, [train_size, val_size])
 
-        # Aggiungi le feature anche a val_set
-        val_set = [add_node_features(val_set[i]) for i in range(len(val_set))]
-
         sampler = make_balanced_sampler(train_set)
         train_loader = DataLoader(train_set, batch_size=batch_size, sampler=sampler, num_workers=2)
         val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=2)
+
         weights = compute_class_weights(train_set)
-        criterion = torch.nn.CrossEntropyLoss(weight=weights)
+        criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
     else:
         train_loader = val_loader = None
         criterion = None
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
 
-    best_val_f1 = 0.0
+    # === Training ===
+    best_val_acc = 0.0
     best_model_path = ""
-    patience = 5
-    patience_counter = 0
 
     if train_loader:
         for epoch in range(args.epochs):
             train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
-            train_losses.append(train_loss)
-            train_accs.append(train_acc)
 
-            val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
-            val_losses.append(val_loss)
-            val_accs.append(val_acc)
+            if (epoch + 1) % 5 == 0 or (epoch + 1) == args.epochs:
+                val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
+                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
 
-            scheduler.step(val_loss)
-
-            print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
-
-            if val_f1 > best_val_f1:
-                best_val_f1 = val_f1
-                patience_counter = 0
-                checkpoints_dir = os.path.join("checkpoints", test_set_name)
-                os.makedirs(checkpoints_dir, exist_ok=True)
-                best_model_path = os.path.join(checkpoints_dir, f"best_model.pt")
-                torch.save(model.state_dict(), best_model_path)
-                print(f"! Best model updated! Saved to {best_model_path} (F1: {best_val_f1:.4f})")
+                if val_acc > best_val_acc:
+                    best_val_acc = val_acc
+                    checkpoints_dir = os.path.join("checkpoints", test_set_name)
+                    os.makedirs(checkpoints_dir, exist_ok=True)
+                    best_model_path = os.path.join(checkpoints_dir, f"best_model.pt")
+                    torch.save(model.state_dict(), best_model_path)
+                    print(f"🟢 Best model updated! Saved to {best_model_path} (Acc: {best_val_acc:.4f})")
             else:
-                patience_counter += 1
-                print(f" No improvement. Patience: {patience_counter}/{patience}")
+                val_loss, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
+                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
-            if patience_counter >= patience:
-                print(" Early stopping triggered.")
-                break
-
-        plot_training_progress(train_losses, train_accs, val_losses, val_accs, output_dir="results")
-
+    # === Load best model ===
     if os.path.exists(best_model_path):
         model.load_state_dict(torch.load(best_model_path))
-        print(f"\n Loaded best model from {best_model_path}")
+        print(f"\n🔄 Loaded best model from {best_model_path}")
 
+    # === Predict test ===
     print("Predicting on test set...")
     model.eval()
     all_preds = []
@@ -123,8 +97,10 @@ def main(args):
             preds = logits.argmax(dim=1)
             all_preds.extend(preds.cpu().tolist())
 
-    save_predictions(all_preds, args.test_path)
-
+    os.makedirs("submission", exist_ok=True)
+    df = pd.DataFrame({"id": list(range(len(all_preds))), "pred": all_preds})
+    df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
+    print(f"Predictions saved to submission/testset_{test_set_name}.csv")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -133,3 +109,4 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=20)
     args = parser.parse_args()
     main(args)
+    
