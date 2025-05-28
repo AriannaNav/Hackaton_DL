@@ -25,16 +25,13 @@ def add_node_features(data):
     in_deg = torch.bincount(col, minlength=data.num_nodes).float().view(-1, 1)
     in_deg = in_deg / (in_deg.max() + 1e-5)
 
+    out_deg = torch.bincount(row, minlength=data.num_nodes).float().view(-1, 1)
+    out_deg = out_deg / (out_deg.max() + 1e-5)
+
     if hasattr(data, 'x') and data.x is not None:
-        try:
-            data.x = torch.cat([data.x, deg, in_deg], dim=1)
-        except RuntimeError as e:
-            print(f"Errore concatenando feature: {e}")
-            print(f"   data.x shape: {data.x.shape}")
-            print(f"   Altre shape: {[t.shape for t in [deg, in_deg]]}")
-            raise e
+        data.x = torch.cat([data.x, deg, in_deg, out_deg], dim=1)
     else:
-        data.x = torch.cat([deg, in_deg], dim=1)
+        data.x = torch.cat([deg, in_deg, out_deg], dim=1)
 
     return data
 
@@ -152,4 +149,3 @@ def plot_training_progress(train_losses, train_acc, val_losses, val_acc, output_
     os.makedirs(output_dir, exist_ok=True)
     plt.savefig(f"{output_dir}/training_progress.png")
     plt.close()
-    

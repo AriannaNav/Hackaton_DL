@@ -40,10 +40,10 @@ def main(args):
 
     sample_graph = train_dataset[0] if train_dataset else test_dataset[0]
     input_dim = sample_graph.x.shape[1]
-    hidden_dim = 64
+    hidden_dim = 128
     output_dim = 6
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
 
     train_losses, train_accs, val_losses, val_accs = [], [], [], []
@@ -126,4 +126,3 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=20)
     args = parser.parse_args()
     main(args)
-    
