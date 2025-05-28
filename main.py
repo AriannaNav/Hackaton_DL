@@ -25,6 +25,11 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_set_name = args.test_path.split("/")[-2]
 
+
+    train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
+    test_dataset = GraphDataset(args.test_path, transform=add_node_features)
+    batch_size = 32
+
     sample_graph = train_dataset[0] if train_dataset else test_dataset[0]
     input_dim = sample_graph.x.shape[1]
     hidden_dim = 64
@@ -32,10 +37,6 @@ def main(args):
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
     scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
-
-    train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
-    test_dataset = GraphDataset(args.test_path, transform=add_node_features)
-    batch_size = 32
 
     train_losses, train_accs, val_losses, val_accs = [], [], [], []
 
