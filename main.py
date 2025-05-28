@@ -31,14 +31,12 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_set_name = args.test_path.split("/")[-2]
 
-    # === Model setup ===
     input_dim = 4
     hidden_dim = 64
     output_dim = 6
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
 
-    # === Dataset loading ===
     train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
     test_dataset = GraphDataset(args.test_path, transform=add_node_features)
     batch_size = 32
@@ -61,6 +59,9 @@ def main(args):
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
 
     # === Training ===
+    best_val_acc = 0.0
+    best_model_path = ""
+
     if train_loader:
         for epoch in range(args.epochs):
             train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
@@ -68,18 +69,24 @@ def main(args):
             if (epoch + 1) % 5 == 0 or (epoch + 1) == args.epochs:
                 val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
                 print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
+
+                if val_acc > best_val_acc:
+                    best_val_acc = val_acc
+                    checkpoints_dir = os.path.join("checkpoints", test_set_name)
+                    os.makedirs(checkpoints_dir, exist_ok=True)
+                    best_model_path = os.path.join(checkpoints_dir, f"best_model.pt")
+                    torch.save(model.state_dict(), best_model_path)
+                    print(f"🟢 Best model updated! Saved to {best_model_path} (Acc: {best_val_acc:.4f})")
             else:
                 val_loss, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
                 print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
-            if (epoch + 1) == 1 or (epoch + 1) % 5 == 0:
-                checkpoints_dir = os.path.join("checkpoints", test_set_name)
-                os.makedirs(checkpoints_dir, exist_ok=True)
-                checkpoint_path = os.path.join(checkpoints_dir, f"model_epoch_{epoch+1:02d}.pt")
-                torch.save(model.state_dict(), checkpoint_path)
-                print(f"✅ Checkpoint salvato: {checkpoint_path}")
+    # === Load best model ===
+    if os.path.exists(best_model_path):
+        model.load_state_dict(torch.load(best_model_path))
+        print(f"\n🔄 Loaded best model from {best_model_path}")
 
-    # === Prediction diretto su test set ===
+    # === Predict test ===
     print("Predicting on test set...")
     model.eval()
     all_preds = []
@@ -99,6 +106,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_path", type=str, default="./datasets/A/train.json.gz")
     parser.add_argument("--test_path", type=str, default="./datasets/A/test.json.gz")
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=20)
     args = parser.parse_args()
     main(args)
