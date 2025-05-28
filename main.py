@@ -5,7 +5,7 @@ import pandas as pd
 from torch_geometric.loader import DataLoader
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
-from source.models import ImprovedGAT
+from source.models import ImprovedNNConv
 from source.utils import (
     set_seed,
     add_node_features,
@@ -38,10 +38,16 @@ def main(args):
     batch_size = 32
 
     sample_graph = train_dataset[0] if train_dataset else test_dataset[0]
+    if not hasattr(sample_graph, 'edge_attr') or sample_graph.edge_attr is None:
+        for dataset in [train_dataset, test_dataset]:
+            if dataset:
+                for data in dataset:
+                    num_edges = data.edge_index.shape[1]
+                    data.edge_attr = torch.ones((num_edges, 1))  # vettore costante 1D
+                    
     input_dim = sample_graph.x.shape[1]
-    hidden_dim = 256
-    output_dim = 6
-    model = ImprovedGAT(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim, dropout_p=0.5, heads=4).to(device)
+    edge_attr_dim = sample_graph.edge_attr.shape[1] 
+    model = ImprovedNNConv(input_dim=input_dim, edge_dim=edge_attr_dim, hidden_dim=256, output_dim=6, dropout_p=0.5).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
 
@@ -129,4 +135,3 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=20)
     args = parser.parse_args()
     main(args)
-    
