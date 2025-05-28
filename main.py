@@ -44,7 +44,7 @@ def main(args):
     hidden_dim = 64
     output_dim = 6
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)
     scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
 
     train_losses, train_accs, val_losses, val_accs = [], [], [], []
@@ -77,23 +77,19 @@ def main(args):
             train_losses.append(train_loss)
             train_accs.append(train_acc)
 
-            if (epoch + 1) % 5 == 0 or (epoch + 1) == args.epochs:
-                val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
-                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
+            val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
+            print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
 
-                val_losses.append(val_loss)
-                val_accs.append(val_acc)
+            val_losses.append(val_loss)
+            val_accs.append(val_acc)
 
-                if val_acc > best_val_acc:
-                    best_val_acc = val_acc
-                    checkpoints_dir = os.path.join("checkpoints", test_set_name)
-                    os.makedirs(checkpoints_dir, exist_ok=True)
-                    best_model_path = os.path.join(checkpoints_dir, f"best_model.pt")
-                    torch.save(model.state_dict(), best_model_path)
-                    print(f"● Best model updated! Saved to {best_model_path} (Acc: {best_val_acc:.4f})")
-            else:
-                val_loss, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
-                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                checkpoints_dir = os.path.join("checkpoints", test_set_name)
+                os.makedirs(checkpoints_dir, exist_ok=True)
+                best_model_path = os.path.join(checkpoints_dir, f"best_model.pt")
+                torch.save(model.state_dict(), best_model_path)
+                print(f"● Best model updated! Saved to {best_model_path} (Acc: {best_val_acc:.4f})")
 
         # Plot training progress
         plot_training_progress(train_losses, train_accs, val_losses, val_accs, output_dir="results")

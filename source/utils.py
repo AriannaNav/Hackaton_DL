@@ -8,7 +8,6 @@ from tqdm import tqdm
 from collections import Counter
 from torch.utils.data import WeightedRandomSampler
 
-
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -18,7 +17,6 @@ def set_seed(seed=42):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-
 def add_node_features(data):
     row, col = data.edge_index
     deg = torch.bincount(row, minlength=data.num_nodes).float().view(-1, 1)
@@ -27,19 +25,19 @@ def add_node_features(data):
     in_deg = torch.bincount(col, minlength=data.num_nodes).float().view(-1, 1)
     in_deg = in_deg / (in_deg.max() + 1e-5)
 
-    out_deg = torch.bincount(row, minlength=data.num_nodes).float().view(-1, 1)
-    out_deg = out_deg / (out_deg.max() + 1e-5)
-
-    norm_node_id = torch.arange(data.num_nodes).float().view(-1, 1) / (data.num_nodes + 1e-5)
-    ones = torch.ones_like(deg)
-
-    # Se x esiste, concateniamo; altrimenti la creiamo da zero
+    # Concateno solo deg e in_deg per evitare overfitting e rumore
     if hasattr(data, 'x') and data.x is not None:
-        data.x = torch.cat([data.x, deg, in_deg, out_deg, norm_node_id, ones], dim=1)
+        try:
+            data.x = torch.cat([data.x, deg, in_deg], dim=1)
+        except RuntimeError as e:
+            print(f"⚠️ Errore concatenando feature: {e}")
+            print(f"   data.x shape: {data.x.shape}")
+            print(f"   Altre shape: {[t.shape for t in [deg, in_deg]]}")
+            raise e
     else:
-        data.x = torch.cat([deg, in_deg, out_deg, norm_node_id, ones], dim=1)
-    return data
+        data.x = torch.cat([deg, in_deg], dim=1)
 
+    return data
 
 class FocalLoss(torch.nn.Module):
     def __init__(self, alpha=1, gamma=2, reduction='mean'):
@@ -58,7 +56,6 @@ class FocalLoss(torch.nn.Module):
             return focal_loss.sum()
         return focal_loss
 
-
 def compute_class_weights(dataset, num_classes=6):
     labels = [data.y.item() for data in dataset if data.y is not None]
     label_counts = Counter(labels)
@@ -68,14 +65,12 @@ def compute_class_weights(dataset, num_classes=6):
     weights = weights / weights.sum()
     return weights
 
-
 def make_balanced_sampler(dataset, num_classes=6):
     labels = [data.y.item() for data in dataset if data.y is not None]
     label_counts = Counter(labels)
     weights_per_class = {cls: 1.0 / count for cls, count in label_counts.items()}
     sample_weights = [weights_per_class[data.y.item()] for data in dataset]
     return WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
-
 
 def train(data_loader, model, optimizer, criterion, device):
     model.train()
@@ -96,7 +91,6 @@ def train(data_loader, model, optimizer, criterion, device):
         total += data.num_graphs
 
     return total_loss / total, correct / total
-
 
 def evaluate(data_loader, model, device, criterion=None, calculate_metrics=False):
     model.eval()
@@ -125,7 +119,6 @@ def evaluate(data_loader, model, device, criterion=None, calculate_metrics=False
 
     return avg_loss, all_preds
 
-
 def save_predictions(preds, test_path):
     test_dir_name = os.path.basename(os.path.dirname(test_path))
     output_dir = "submission"
@@ -134,7 +127,6 @@ def save_predictions(preds, test_path):
     df = pd.DataFrame({"id": list(range(len(preds))), "pred": preds})
     df.to_csv(output_csv_path, index=False)
     print(f"Predictions saved to {output_csv_path}")
-
 
 def plot_training_progress(train_losses, train_acc, val_losses, val_acc, output_dir):
     import matplotlib.pyplot as plt
@@ -155,4 +147,3 @@ def plot_training_progress(train_losses, train_acc, val_losses, val_acc, output_
     os.makedirs(output_dir, exist_ok=True)
     plt.savefig(f"{output_dir}/training_progress.png")
     plt.close()
-    
