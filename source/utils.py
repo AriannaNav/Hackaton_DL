@@ -8,6 +8,7 @@ from tqdm import tqdm
 from collections import Counter
 from torch.utils.data import WeightedRandomSampler
 
+
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -19,34 +20,24 @@ def set_seed(seed=42):
 
 
 def add_node_features(data):
-    # Calcolo gradi
     row, col = data.edge_index
     deg = torch.bincount(row, minlength=data.num_nodes).float().view(-1, 1)
+    deg = deg / (deg.max() + 1e-5)
+
     in_deg = torch.bincount(col, minlength=data.num_nodes).float().view(-1, 1)
+    in_deg = in_deg / (in_deg.max() + 1e-5)
+
     out_deg = torch.bincount(row, minlength=data.num_nodes).float().view(-1, 1)
+    out_deg = out_deg / (out_deg.max() + 1e-5)
 
-    # Normalizzazioni
-    deg_norm = deg / (deg.max() + 1e-5)
-    in_deg_norm = in_deg / (in_deg.max() + 1e-5)
-    out_deg_norm = out_deg / (out_deg.max() + 1e-5)
-
-    # Feature posizionale: indice normalizzato
     norm_node_id = torch.arange(data.num_nodes).float().view(-1, 1) / (data.num_nodes + 1e-5)
-
-    # Feature costante e statistica globale
     ones = torch.ones_like(deg)
-    global_deg_mean = deg.mean().repeat(data.num_nodes, 1)
 
-    # Composizione finale del nodo
-    data.x = torch.cat([
-        deg_norm, in_deg_norm, out_deg_norm, norm_node_id, ones, global_deg_mean
-    ], dim=1)
-
-    # Feature sugli archi (differenza normalizzata tra indici)
-    edge_diff = (row - col).float().unsqueeze(1)
-    edge_diff = edge_diff / (edge_diff.abs().max() + 1e-5)
-    data.edge_attr = edge_diff
-
+    # Se x esiste, concateniamo; altrimenti la creiamo da zero
+    if hasattr(data, 'x') and data.x is not None:
+        data.x = torch.cat([data.x, deg, in_deg, out_deg, norm_node_id, ones], dim=1)
+    else:
+        data.x = torch.cat([deg, in_deg, out_deg, norm_node_id, ones], dim=1)
     return data
 
 
