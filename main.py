@@ -25,11 +25,20 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_set_name = args.test_path.split("/")[-2]
 
+    # Carica dataset SENZA transform
+    train_dataset = GraphDataset(args.train_path) if args.train_path else None
+    test_dataset = GraphDataset(args.test_path)
 
-    train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
-    test_dataset = GraphDataset(args.test_path, transform=add_node_features)
+    # Applica add_node_features manualmente
+    if train_dataset:
+        for i in range(len(train_dataset)):
+            train_dataset.graphs[i] = add_node_features(train_dataset.graphs[i])
+    for i in range(len(test_dataset)):
+        test_dataset.graphs[i] = add_node_features(test_dataset.graphs[i])
+
     batch_size = 32
 
+    # Ricava input_dim dopo che i dati sono stati trasformati
     sample_graph = train_dataset[0] if train_dataset else test_dataset[0]
     input_dim = sample_graph.x.shape[1]
     hidden_dim = 64
@@ -113,3 +122,4 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=20)
     args = parser.parse_args()
     main(args)
+    
