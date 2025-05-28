@@ -25,7 +25,7 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_set_name = args.test_path.split("/")[-2]
 
-    input_dim = 6  # Aggiornato da 4 a 5 per includere la nuova feature 'ones'
+    input_dim = 20  
     hidden_dim = 64
     output_dim = 6
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
