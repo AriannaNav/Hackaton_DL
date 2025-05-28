@@ -25,12 +25,11 @@ def add_node_features(data):
     in_deg = torch.bincount(col, minlength=data.num_nodes).float().view(-1, 1)
     in_deg = in_deg / (in_deg.max() + 1e-5)
 
-    # Concateno solo deg e in_deg per evitare overfitting e rumore
     if hasattr(data, 'x') and data.x is not None:
         try:
             data.x = torch.cat([data.x, deg, in_deg], dim=1)
         except RuntimeError as e:
-            print(f"⚠️ Errore concatenando feature: {e}")
+            print(f"Errore concatenando feature: {e}")
             print(f"   data.x shape: {data.x.shape}")
             print(f"   Altre shape: {[t.shape for t in [deg, in_deg]]}")
             raise e
@@ -90,7 +89,9 @@ def train(data_loader, model, optimizer, criterion, device):
         correct += (pred == data.y).sum().item()
         total += data.num_graphs
 
-    return total_loss / total, correct / total
+    avg_loss = total_loss / total
+    avg_acc = correct / total
+    return avg_loss, avg_acc
 
 def evaluate(data_loader, model, device, criterion=None, calculate_metrics=False):
     model.eval()
@@ -135,15 +136,20 @@ def plot_training_progress(train_losses, train_acc, val_losses, val_acc, output_
     plt.subplot(1, 2, 1)
     plt.plot(train_losses, label="Train Loss")
     plt.plot(val_losses, label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
     plt.legend()
     plt.title("Loss over epochs")
 
     plt.subplot(1, 2, 2)
     plt.plot(train_acc, label="Train Accuracy")
     plt.plot(val_acc, label="Validation Accuracy")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
     plt.legend()
     plt.title("Accuracy over epochs")
 
     os.makedirs(output_dir, exist_ok=True)
     plt.savefig(f"{output_dir}/training_progress.png")
     plt.close()
+    

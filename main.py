@@ -17,7 +17,7 @@ from source.utils import (
     save_predictions,
     plot_training_progress
 )
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
 def main(args):
@@ -25,11 +25,11 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_set_name = args.test_path.split("/")[-2]
 
-    # Carica dataset SENZA transform
+    # Carica dataset
     train_dataset = GraphDataset(args.train_path) if args.train_path else None
     test_dataset = GraphDataset(args.test_path)
 
-    # Applica add_node_features manualmente
+    # Aggiungi feature ai nodi
     if train_dataset:
         for i in range(len(train_dataset)):
             train_dataset.graphs[i] = add_node_features(train_dataset.graphs[i])
@@ -38,14 +38,13 @@ def main(args):
 
     batch_size = 32
 
-    # Ricava input_dim dopo che i dati sono stati trasformati
     sample_graph = train_dataset[0] if train_dataset else test_dataset[0]
     input_dim = sample_graph.x.shape[1]
     hidden_dim = 64
     output_dim = 6
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)
-    scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
 
     train_losses, train_accs, val_losses, val_accs = [], [], [], []
 
@@ -66,37 +65,46 @@ def main(args):
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
 
-    best_val_acc = 0.0
+    best_val_f1 = 0.0
     best_model_path = ""
+    patience = 5
+    patience_counter = 0
 
     if train_loader:
         for epoch in range(args.epochs):
             train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
-            scheduler.step()
-
             train_losses.append(train_loss)
             train_accs.append(train_acc)
 
             val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
-            print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
-
             val_losses.append(val_loss)
             val_accs.append(val_acc)
 
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
+            scheduler.step(val_loss)
+
+            print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
+
+            if val_f1 > best_val_f1:
+                best_val_f1 = val_f1
+                patience_counter = 0
                 checkpoints_dir = os.path.join("checkpoints", test_set_name)
                 os.makedirs(checkpoints_dir, exist_ok=True)
                 best_model_path = os.path.join(checkpoints_dir, f"best_model.pt")
                 torch.save(model.state_dict(), best_model_path)
-                print(f"● Best model updated! Saved to {best_model_path} (Acc: {best_val_acc:.4f})")
+                print(f"! Best model updated! Saved to {best_model_path} (F1: {best_val_f1:.4f})")
+            else:
+                patience_counter += 1
+                print(f" No improvement. Patience: {patience_counter}/{patience}")
 
-        # Plot training progress
+            if patience_counter >= patience:
+                print(" Early stopping triggered.")
+                break
+
         plot_training_progress(train_losses, train_accs, val_losses, val_accs, output_dir="results")
 
     if os.path.exists(best_model_path):
         model.load_state_dict(torch.load(best_model_path))
-        print(f"\n🔄 Loaded best model from {best_model_path}")
+        print(f"\n Loaded best model from {best_model_path}")
 
     print("Predicting on test set...")
     model.eval()
