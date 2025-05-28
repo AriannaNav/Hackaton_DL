@@ -6,25 +6,11 @@ from torch_geometric.loader import DataLoader
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
 from source.models import ImprovedGAT as ImprovedNNConv
-from source.utils import set_seed, add_node_features, train, evaluate
+from source.utils import set_seed, add_node_features, train, evaluate, FocalLoss, compute_class_weights, make_balanced_sampler
 from collections import Counter
 from torch.utils.data import WeightedRandomSampler
+from torch.optim.lr_scheduler import StepLR
 
-def compute_class_weights(dataset, num_classes=6):
-    labels = [data.y.item() for data in dataset if data.y is not None]
-    label_counts = Counter(labels)
-    total = sum(label_counts.values())
-    freqs = torch.tensor([label_counts.get(i, 0) / total for i in range(num_classes)], dtype=torch.float32)
-    weights = 1.0 / (freqs + 1e-8)
-    weights = weights / weights.sum()
-    return weights
-
-def make_balanced_sampler(dataset, num_classes=6):
-    labels = [data.y.item() for data in dataset if data.y is not None]
-    label_counts = Counter(labels)
-    weights_per_class = {cls: 1.0 / count for cls, count in label_counts.items()}
-    sample_weights = [weights_per_class[data.y.item()] for data in dataset]
-    return WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
 
 def main(args):
     set_seed(42)
@@ -36,6 +22,7 @@ def main(args):
     output_dim = 6
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.5)
 
     train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
     test_dataset = GraphDataset(args.test_path, transform=add_node_features)
@@ -51,7 +38,8 @@ def main(args):
         val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=2)
 
         weights = compute_class_weights(train_set)
-        criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
+        # Use FocalLoss with class weights
+        criterion = FocalLoss(alpha=1, gamma=2)
     else:
         train_loader = val_loader = None
         criterion = None
@@ -65,6 +53,7 @@ def main(args):
     if train_loader:
         for epoch in range(args.epochs):
             train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
+            scheduler.step()
 
             if (epoch + 1) % 5 == 0 or (epoch + 1) == args.epochs:
                 val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
@@ -76,7 +65,7 @@ def main(args):
                     os.makedirs(checkpoints_dir, exist_ok=True)
                     best_model_path = os.path.join(checkpoints_dir, f"best_model.pt")
                     torch.save(model.state_dict(), best_model_path)
-                    print(f"🟢 Best model updated! Saved to {best_model_path} (Acc: {best_val_acc:.4f})")
+                    print(f"● Best model updated! Saved to {best_model_path} (Acc: {best_val_acc:.4f})")
             else:
                 val_loss, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
                 print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
@@ -102,6 +91,7 @@ def main(args):
     df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
     print(f"Predictions saved to submission/testset_{test_set_name}.csv")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_path", type=str, default="./datasets/A/train.json.gz")
@@ -109,3 +99,4 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=20)
     args = parser.parse_args()
     main(args)
+    

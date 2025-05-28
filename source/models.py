@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from torch.nn import Linear, ModuleList, Dropout, BatchNorm1d, Sequential, ReLU
+from torch.nn import Linear, ModuleList, Dropout, BatchNorm1d, ReLU
 from torch_geometric.nn import GATConv, global_mean_pool
 
 class ImprovedGAT(torch.nn.Module):
@@ -12,17 +12,9 @@ class ImprovedGAT(torch.nn.Module):
         self.convs = ModuleList()
         self.bns = ModuleList()
 
-        # Primo GAT layer
-        self.convs.append(GATConv(hidden_dim, hidden_dim // heads, heads=heads, concat=True))
-        self.bns.append(BatchNorm1d(hidden_dim))
-
-        # Secondo GAT layer
-        self.convs.append(GATConv(hidden_dim, hidden_dim // heads, heads=heads, concat=True))
-        self.bns.append(BatchNorm1d(hidden_dim))
-
-        # Terzo GAT layer
-        self.convs.append(GATConv(hidden_dim, hidden_dim // heads, heads=heads, concat=True))
-        self.bns.append(BatchNorm1d(hidden_dim))
+        for _ in range(3):  # 3 GAT layers
+            self.convs.append(GATConv(hidden_dim, hidden_dim // heads, heads=heads, concat=True))
+            self.bns.append(BatchNorm1d(hidden_dim))
 
         self.dropout = Dropout(p=dropout_p)
         self.lin1 = Linear(hidden_dim, hidden_dim)
@@ -33,10 +25,12 @@ class ImprovedGAT(torch.nn.Module):
         x = self.x_encoder(x)
 
         for conv, bn in zip(self.convs, self.bns):
+            residual = x  # save input for residual connection
             x = conv(x, edge_index)
-            x = bn(x)
             x = F.relu(x)
+            x = bn(x)
             x = self.dropout(x)
+            x = x + residual  # residual connection
 
         x = global_mean_pool(x, batch)
         x = self.lin1(x)
@@ -49,9 +43,12 @@ class ImprovedGAT(torch.nn.Module):
         x, edge_index, batch = data.x, data.edge_index, data.batch
         x = self.x_encoder(x)
 
-        for conv, _ in zip(self.convs, self.bns):
+        for conv, bn in zip(self.convs, self.bns):
+            residual = x
             x = conv(x, edge_index)
             x = F.relu(x)
+            x = bn(x)
+            x = x + residual
 
         x = global_mean_pool(x, batch)
         return x
