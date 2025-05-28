@@ -5,13 +5,12 @@ import pandas as pd
 from torch_geometric.loader import DataLoader
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
-from source.models import ImprovedGAT as ImprovedNNConv
+from source.models import ImprovedGAT
 from source.utils import (
     set_seed,
     add_node_features,
     train,
     evaluate,
-    FocalLoss,
     compute_class_weights,
     make_balanced_sampler,
     save_predictions,
@@ -40,10 +39,10 @@ def main(args):
 
     sample_graph = train_dataset[0] if train_dataset else test_dataset[0]
     input_dim = sample_graph.x.shape[1]
-    hidden_dim = 128
+    hidden_dim = 256
     output_dim = 6
-    model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+    model = ImprovedGAT(input_dim=input_dim, hidden_dim=hidden_dim, output_dim=output_dim, dropout_p=0.5, heads=4).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
 
     train_losses, train_accs, val_losses, val_accs = [], [], [], []
@@ -53,12 +52,16 @@ def main(args):
         train_size = len(train_dataset) - val_size
         train_set, val_set = torch.utils.data.random_split(train_dataset, [train_size, val_size])
 
+        # Aggiungi le feature anche a val_set
+        for i in range(len(val_set)):
+            val_set[i] = add_node_features(val_set[i])
+
         sampler = make_balanced_sampler(train_set)
         train_loader = DataLoader(train_set, batch_size=batch_size, sampler=sampler, num_workers=2)
         val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=2)
 
         weights = compute_class_weights(train_set)
-        criterion = FocalLoss(alpha=1, gamma=2)
+        criterion = torch.nn.CrossEntropyLoss(weight=weights)
     else:
         train_loader = val_loader = None
         criterion = None
@@ -126,3 +129,4 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=20)
     args = parser.parse_args()
     main(args)
+    
