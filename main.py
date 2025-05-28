@@ -44,7 +44,7 @@ def main(args):
                 for data in dataset:
                     num_edges = data.edge_index.shape[1]
                     data.edge_attr = torch.ones((num_edges, 1))  # vettore costante 1D
-                    
+
     input_dim = sample_graph.x.shape[1]
     edge_attr_dim = sample_graph.edge_attr.shape[1] 
     model = ImprovedNNConv(input_dim=input_dim, edge_dim=edge_attr_dim, hidden_dim=256, output_dim=6, dropout_p=0.5).to(device)
@@ -59,13 +59,11 @@ def main(args):
         train_set, val_set = torch.utils.data.random_split(train_dataset, [train_size, val_size])
 
         # Aggiungi le feature anche a val_set
-        for i in range(len(val_set)):
-            val_set[i] = add_node_features(val_set[i])
+        val_set = [add_node_features(val_set[i]) for i in range(len(val_set))]
 
         sampler = make_balanced_sampler(train_set)
         train_loader = DataLoader(train_set, batch_size=batch_size, sampler=sampler, num_workers=2)
         val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=2)
-
         weights = compute_class_weights(train_set)
         criterion = torch.nn.CrossEntropyLoss(weight=weights)
     else:
