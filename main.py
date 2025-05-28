@@ -5,7 +5,7 @@ import pandas as pd
 from torch_geometric.loader import DataLoader
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
-from source.models import ImprovedGINE as ImprovedNNConv
+from source.models import ImprovedGAT as ImprovedNNConv
 from source.utils import set_seed, add_node_features, train, evaluate
 from collections import Counter
 from torch.utils.data import WeightedRandomSampler
