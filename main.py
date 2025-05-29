@@ -54,7 +54,6 @@ def main(args):
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
 
-    best_val_f1 = 0.0
     top_checkpoints = []
     MAX_TOP = 5
     checkpoints_dir = os.path.join("checkpoints", test_set_name)
@@ -76,18 +75,12 @@ def main(args):
                 log_file.write(f"{epoch+1},{train_loss:.4f},{val_loss:.4f},{val_acc:.4f},{val_f1:.4f},{val_prec:.4f},{val_rec:.4f}\n")
                 log_file.flush()
 
-            if val_f1 > best_val_f1:
-                best_val_f1 = val_f1
-                torch.save(model.state_dict(), os.path.join(checkpoints_dir, "best_f1_model.pt"))
-
-            scheduler.step(val_f1)
-
-            top_checkpoints = save_top_checkpoints(model, val_acc, epoch, checkpoints_dir, top_checkpoints, MAX_TOP)
+            top_checkpoints = save_top_checkpoints(model, val_f1, epoch, checkpoints_dir, top_checkpoints, MAX_TOP, dataset_name=test_set_name)
 
         log_file.close()
 
-    best_model_path = os.path.join(checkpoints_dir, "best_f1_model.pt")
-    if os.path.exists(best_model_path):
+    best_model_path = top_checkpoints[0][2] if top_checkpoints else None
+    if best_model_path and os.path.exists(best_model_path):
         model.load_state_dict(torch.load(best_model_path))
         print(f"\nBest model loaded from: {best_model_path}")
     else:
@@ -122,3 +115,4 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=100)
     args = parser.parse_args()
     main(args)
+    
