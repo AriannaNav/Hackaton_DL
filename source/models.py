@@ -1,3 +1,4 @@
+# ===== models.py =====
 import torch
 import torch.nn.functional as F
 from torch.nn import Linear, ModuleList, Dropout, BatchNorm1d, Sequential, ReLU
@@ -13,7 +14,7 @@ class ImprovedGINE(torch.nn.Module):
         self.convs = ModuleList()
         self.bns = ModuleList()
 
-        for _ in range(4):  # aumentato da 3 a 4 strati
+        for _ in range(4):  # 4 layers
             nn = Sequential(
                 Linear(hidden_dim, hidden_dim),
                 ReLU(),
@@ -38,7 +39,7 @@ class ImprovedGINE(torch.nn.Module):
             x = bn(x)
             x = F.relu(x)
             x = self.dropout(x)
-            x = x + residual  # residual connection
+            x = x + residual
 
         x = global_mean_pool(x, batch)
         x = self.lin1(x)
@@ -62,5 +63,16 @@ class ImprovedGINE(torch.nn.Module):
             x = x + residual
 
         x = global_mean_pool(x, batch)
+        return x
+
+class MLPClassifier(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(MLPClassifier, self).__init__()
+        self.fc1 = Linear(input_dim, hidden_dim)
+        self.fc2 = Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
         return x
     

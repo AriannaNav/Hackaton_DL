@@ -30,13 +30,11 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_set_name = args.test_path.split("/")[-2]
 
-    # === Model setup ===
     input_dim = 4
     hidden_dim = 64
     output_dim = 6
     model = ImprovedGINE(input_dim, hidden_dim, output_dim).to(device)
 
-    # === Dataset loading ===
     train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
     test_dataset = GraphDataset(args.test_path, transform=add_node_features)
     batch_size = 32
@@ -50,13 +48,13 @@ def main(args):
 
         criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
     else:
-        train_loader = val_loader = criterion = optimizer = None
+        train_loader = val_loader = criterion = optimizer = scheduler = None
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
 
-    # === Training ===
-    best_val_acc = 0.0
+    best_val_f1 = 0.0
     top_checkpoints = []
     MAX_TOP = 5
     checkpoints_dir = os.path.join("checkpoints", test_set_name)
@@ -75,22 +73,26 @@ def main(args):
             print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
 
             if (epoch + 1) % 10 == 0:
-                log_file.write(f"{epoch+1},{train_loss:.4f},{val_loss:.4f},{val_acc:.4f}\n")
+                log_file.write(f"{epoch+1},{train_loss:.4f},{val_loss:.4f},{val_acc:.4f},{val_f1:.4f},{val_prec:.4f},{val_rec:.4f}\n")
                 log_file.flush()
+
+            if val_f1 > best_val_f1:
+                best_val_f1 = val_f1
+                torch.save(model.state_dict(), os.path.join(checkpoints_dir, "best_f1_model.pt"))
+
+            scheduler.step(val_f1)
 
             top_checkpoints = save_top_checkpoints(model, val_acc, epoch, checkpoints_dir, top_checkpoints, MAX_TOP)
 
         log_file.close()
 
-    # === Load Best Checkpoint ===
-    if top_checkpoints:
-        best_model_path = top_checkpoints[0][2]
+    best_model_path = os.path.join(checkpoints_dir, "best_f1_model.pt")
+    if os.path.exists(best_model_path):
         model.load_state_dict(torch.load(best_model_path))
         print(f"\nBest model loaded from: {best_model_path}")
     else:
         print("Warning: No best model found, using last model state.")
 
-    # === Embedding + MLP Classifier ===
     print("Extracting embeddings...")
     train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
     test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
