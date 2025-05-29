@@ -59,7 +59,6 @@ def main(args):
         # === Compute class weights from training set ===
         weights = compute_class_weights(train_set)
         criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
-
     else:
         train_loader = val_loader = None
         criterion = None
@@ -67,6 +66,7 @@ def main(args):
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
 
     # === Training ===
+    best_val_acc = 0.0
     if train_loader:
         for epoch in range(args.epochs):
             train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
@@ -75,16 +75,25 @@ def main(args):
                 val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
                 print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
             else:
-                val_loss, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=False)
+                val_loss, val_acc, _, _, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
                 print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
-            # === Save Checkpoint ===
-            if (epoch + 1) == 1 or (epoch + 1) % 5 == 0:
+            # === Save Best Checkpoint ===
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
                 checkpoints_dir = os.path.join("checkpoints", test_set_name)
                 os.makedirs(checkpoints_dir, exist_ok=True)
-                checkpoint_path = os.path.join(checkpoints_dir, f"model_epoch_{epoch+1:02d}.pt")
-                torch.save(model.state_dict(), checkpoint_path)
-                print(f"✅ Checkpoint salvato: {checkpoint_path}")
+                best_model_path = os.path.join(checkpoints_dir, "best_model.pt")
+                torch.save(model.state_dict(), best_model_path)
+                print(f"🟢 Best model updated! Saved to {best_model_path}")
+
+    # === Load Best Checkpoint (if exists) ===
+    best_model_path = os.path.join("checkpoints", test_set_name, "best_model.pt")
+    if os.path.exists(best_model_path):
+        model.load_state_dict(torch.load(best_model_path))
+        print(f"\n🔁 Best model loaded from {best_model_path}")
+    else:
+        print(f"⚠️ Warning: Best model not found, using last model state.")
 
     # === Embedding + Classifier ===
     print("Extracting embeddings...")
@@ -92,12 +101,12 @@ def main(args):
     test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
 
     clf = RandomForestClassifier(
-    n_estimators=300,
-    max_depth=20,
-    min_samples_leaf=2,
-    class_weight='balanced',
-    random_state=42,
-    n_jobs=-1
+        n_estimators=300,
+        max_depth=20,
+        min_samples_leaf=2,
+        class_weight='balanced',
+        random_state=42,
+        n_jobs=-1
     )
     
     clf.fit(train_embeddings, train_labels)
@@ -112,12 +121,3 @@ def main(args):
     df = pd.DataFrame({"id": list(range(len(y_pred))), "pred": y_pred})
     df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
     print(f"Predictions saved to submission/testset_{test_set_name}.csv")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--train_path", type=str, default="./datasets/A/train.json.gz")
-    parser.add_argument("--test_path", type=str, default="./datasets/A/test.json.gz")
-    parser.add_argument("--epochs", type=int, default=10)
-    args = parser.parse_args()
-    main(args)
-
