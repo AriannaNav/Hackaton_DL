@@ -1,4 +1,4 @@
- import torch
+import torch
 import torch.nn.functional as F
 from torch.nn import Linear, ModuleList, Dropout, BatchNorm1d, Sequential, ReLU
 from torch_geometric.nn import GINEConv, global_mean_pool
