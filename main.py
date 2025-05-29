@@ -85,7 +85,8 @@ def main(args):
 
             # === Save Top 5 Checkpoints ===
             if val_acc > best_val_acc or len(top_checkpoints) < MAX_TOP:
-                checkpoint_path = os.path.join(checkpoints_dir, f"model_epoch_{epoch+1:02d}_acc_{val_acc:.4f}.pt")
+                model_name = f"model_{test_set_name}_epoch_{epoch+1}.pth"
+                checkpoint_path = os.path.join(checkpoints_dir, model_name)
                 torch.save(model.state_dict(), checkpoint_path)
                 top_checkpoints.append((val_acc, epoch+1, checkpoint_path))
                 top_checkpoints = sorted(top_checkpoints, key=lambda x: x[0], reverse=True)[:MAX_TOP]
@@ -100,7 +101,7 @@ def main(args):
     if top_checkpoints:
         best_model_path = top_checkpoints[0][2]
         model.load_state_dict(torch.load(best_model_path))
-        print(f"\n Best model loaded from {best_model_path}")
+        print(f"\nBest model loaded from: {best_model_path}")
     else:
         print("Warning: No best model found, using last model state.")
 
