@@ -126,3 +126,11 @@ def main(args):
     df = pd.DataFrame({"id": list(range(len(y_pred))), "pred": y_pred})
     df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
     print(f"Predictions saved to submission/testset_{test_set_name}.csv")
+    
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--train_path", type=str, default="./datasets/A/train.json.gz")
+    parser.add_argument("--test_path", type=str, default="./datasets/A/test.json.gz")
+    parser.add_argument("--epochs", type=int, default=100)
+    args = parser.parse_args()
+    main(args)
