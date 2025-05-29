@@ -1,4 +1,3 @@
-# 📁 FILE: models.py (con 3 GINEConv, residual e hidden_dim=128)
 import torch
 import torch.nn.functional as F
 from torch.nn import Linear, ModuleList, Dropout, BatchNorm1d, Sequential, ReLU
