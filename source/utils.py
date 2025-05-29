@@ -1,86 +1,92 @@
 import os
 import random
-import numpy as np
 import torch
-import pandas as pd
+import numpy as np
+from torch.nn.functional import cross_entropy
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
-from tqdm import tqdm
 
-def set_seed(seed=42):
+
+def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    torch.cuda.manual_seed_all(seed)
+
 
 def add_node_features(data):
-    row, col = data.edge_index
-    deg = torch.bincount(row, minlength=data.num_nodes).float().view(-1, 1)
-    deg = deg / (deg.max() + 1e-5)
-
-    in_deg = torch.bincount(col, minlength=data.num_nodes).float().view(-1, 1)
-    in_deg = in_deg / (in_deg.max() + 1e-5)
-
-    out_deg = torch.bincount(row, minlength=data.num_nodes).float().view(-1, 1)
-    out_deg = out_deg / (out_deg.max() + 1e-5)
-
-    norm_node_id = torch.arange(data.num_nodes).float().view(-1, 1) / (data.num_nodes + 1e-5)
-    data.x = torch.cat([deg, in_deg, out_deg, norm_node_id], dim=1)
+    # Presuppone che `data` abbia già `x` come feature dei nodi, oppure si può generare qui
+    if not hasattr(data, 'x') or data.x is None:
+        data.x = torch.ones((data.num_nodes, 4))  # Dummy features se mancanti
     return data
 
-def train(data_loader, model, optimizer, criterion, device):
+
+def train(loader, model, optimizer, criterion, device):
     model.train()
     total_loss = 0
     correct = 0
     total = 0
-    for data in tqdm(data_loader, desc="Training batches"):
+
+    for data in loader:
         data = data.to(device)
         optimizer.zero_grad()
-        output = model(data)
-        loss = criterion(output, data.y)
+        out = model(data)
+        loss = criterion(out, data.y)
         loss.backward()
         optimizer.step()
 
         total_loss += loss.item() * data.num_graphs
-        pred = output.argmax(dim=1)
+        pred = out.argmax(dim=1)
         correct += (pred == data.y).sum().item()
         total += data.num_graphs
 
     return total_loss / total, correct / total
 
-def evaluate(data_loader, model, device, criterion=None, calculate_metrics=False):
+
+def evaluate(loader, model, device, criterion=None, calculate_metrics=False):
     model.eval()
     total_loss = 0
-    all_preds, all_labels = [], []
+    correct = 0
+    total = 0
+    y_true = []
+    y_pred = []
+
     with torch.no_grad():
-        for data in data_loader:
+        for data in loader:
             data = data.to(device)
-            output = model(data)
-            preds = output.argmax(dim=1)
-            all_preds.extend(preds.cpu().tolist())
-            if calculate_metrics:
-                all_labels.extend(data.y.cpu().tolist())
-            if criterion is not None:
-                loss = criterion(output, data.y)
+            out = model(data)
+            if criterion:
+                loss = criterion(out, data.y)
                 total_loss += loss.item() * data.num_graphs
+            pred = out.argmax(dim=1)
+            correct += (pred == data.y).sum().item()
+            total += data.num_graphs
+            y_true.extend(data.y.cpu().numpy())
+            y_pred.extend(pred.cpu().numpy())
 
-    avg_loss = total_loss / len(data_loader.dataset) if criterion is not None else None
+    acc = correct / total
+    avg_loss = total_loss / total if criterion else None
 
-    if calculate_metrics and all_labels:
-        f1 = f1_score(all_labels, all_preds, average='macro')
-        precision = precision_score(all_labels, all_preds, average='macro', zero_division=0)
-        recall = recall_score(all_labels, all_preds, average='macro', zero_division=0)
-        accuracy = accuracy_score(all_labels, all_preds)
-        return avg_loss, accuracy, f1, precision, recall
+    if calculate_metrics:
+        f1 = f1_score(y_true, y_pred, average='macro')
+        prec = precision_score(y_true, y_pred, average='macro')
+        rec = recall_score(y_true, y_pred, average='macro')
+        return avg_loss, acc, f1, prec, rec
+    else:
+        return avg_loss, acc
 
-    return avg_loss, all_preds
 
 def save_top_checkpoints(model, val_acc, epoch, checkpoints_dir, top_checkpoints, max_top=5):
-    model_name = f"model_epoch_{epoch+1}.pth"
-    checkpoint_path = os.path.join(checkpoints_dir, model_name)
-    torch.save(model.state_dict(), checkpoint_path)
-    top_checkpoints.append((val_acc, epoch+1, checkpoint_path))
+    ckpt_path = os.path.join(checkpoints_dir, f"epoch{epoch+1}_acc{val_acc:.4f}.pt")
+    torch.save(model.state_dict(), ckpt_path)
+
+    top_checkpoints.append((val_acc, epoch, ckpt_path))
     top_checkpoints = sorted(top_checkpoints, key=lambda x: x[0], reverse=True)[:max_top]
+
+    # Delete checkpoints not in top
+    saved_paths = [ckpt[2] for ckpt in top_checkpoints]
+    for filename in os.listdir(checkpoints_dir):
+        full_path = os.path.join(checkpoints_dir, filename)
+        if full_path not in saved_paths:
+            os.remove(full_path)
+
     return top_checkpoints

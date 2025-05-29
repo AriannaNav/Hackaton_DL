@@ -1,8 +1,8 @@
-# ===== models.py =====
 import torch
 import torch.nn.functional as F
 from torch.nn import Linear, ModuleList, Dropout, BatchNorm1d, Sequential, ReLU
 from torch_geometric.nn import GINEConv, global_mean_pool
+
 
 class ImprovedGINE(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim=128, output_dim=6, edge_dim=7, dropout_p=0.2):
@@ -14,7 +14,7 @@ class ImprovedGINE(torch.nn.Module):
         self.convs = ModuleList()
         self.bns = ModuleList()
 
-        for _ in range(4):  # 4 layers
+        for _ in range(4):  # 4 GINE layers
             nn = Sequential(
                 Linear(hidden_dim, hidden_dim),
                 ReLU(),
@@ -39,7 +39,7 @@ class ImprovedGINE(torch.nn.Module):
             x = bn(x)
             x = F.relu(x)
             x = self.dropout(x)
-            x = x + residual
+            x = x + residual  # Residual connection
 
         x = global_mean_pool(x, batch)
         x = self.lin1(x)
@@ -65,14 +65,21 @@ class ImprovedGINE(torch.nn.Module):
         x = global_mean_pool(x, batch)
         return x
 
+
 class MLPClassifier(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim=128, output_dim=6):
         super(MLPClassifier, self).__init__()
-        self.fc1 = Linear(input_dim, hidden_dim)
-        self.fc2 = Linear(hidden_dim, output_dim)
+        self.net = Sequential(
+            Linear(input_dim, hidden_dim),
+            ReLU(),
+            Dropout(0.3),
+            Linear(hidden_dim, hidden_dim),
+            ReLU(),
+            Dropout(0.3),
+            Linear(hidden_dim, output_dim)
+        )
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        return self.net(x)
+    
     

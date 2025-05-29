@@ -4,8 +4,9 @@ import torch
 import pandas as pd
 from torch import nn
 from torch_geometric.loader import DataLoader
-from sklearn.metrics import classification_report
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report
+
 from source.load_data import GraphDataset
 from source.models import ImprovedGINE, MLPClassifier
 from source.utils import set_seed, add_node_features, train, evaluate, save_top_checkpoints
@@ -22,19 +23,18 @@ def extract_embeddings(model, data_loader, device):
             embeddings.append(emb.cpu())
             if data.y is not None:
                 labels.append(data.y.cpu())
-    return torch.cat(embeddings, dim=0), torch.cat(labels, dim=0) if len(labels) > 0 else None
+    return torch.cat(embeddings, dim=0), torch.cat(labels, dim=0) if labels else None
 
 
 def main(args):
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    test_set_name = args.test_path.split("/")[-2]
+    test_set_name = os.path.basename(os.path.dirname(args.test_path))
 
-    input_dim = 4
-    hidden_dim = 64
-    output_dim = 6
+    input_dim, hidden_dim, output_dim = 4, 64, 6
     model = ImprovedGINE(input_dim, hidden_dim, output_dim).to(device)
 
+    # Load datasets
     train_dataset = GraphDataset(args.train_path, transform=add_node_features) if args.train_path else None
     test_dataset = GraphDataset(args.test_path, transform=add_node_features)
     batch_size = 32
@@ -43,91 +43,64 @@ def main(args):
         val_size = int(0.2 * len(train_dataset))
         train_size = len(train_dataset) - val_size
         train_set, val_set = torch.utils.data.random_split(train_dataset, [train_size, val_size])
-        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=2)
-        val_loader = DataLoader(val_set, batch_size=batch_size, num_workers=2)
-
+        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_set, batch_size=batch_size)
         criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
+        optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
     else:
-        train_loader = val_loader = criterion = optimizer = scheduler = None
+        train_loader = val_loader = criterion = optimizer = None
 
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
-    best_val_f1 = 0.0
+    # Training + Save Top 5
     top_checkpoints = []
-    MAX_TOP = 5
     checkpoints_dir = os.path.join("checkpoints", test_set_name)
     os.makedirs(checkpoints_dir, exist_ok=True)
-
-    log_dir = "logs"
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, f"{test_set_name}.log")
-    log_file = open(log_path, "w")
 
     if train_loader:
         for epoch in range(args.epochs):
             train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
-            val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
+            val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, True)
 
-            print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
+            print(f"Epoch {epoch+1} | Train Loss: {train_loss:.4f} | Val Acc: {val_acc:.4f} | F1: {val_f1:.4f}")
 
-            if (epoch + 1) % 10 == 0:
-                log_file.write(f"{epoch+1},{train_loss:.4f},{val_loss:.4f},{val_acc:.4f},{val_f1:.4f},{val_prec:.4f},{val_rec:.4f}\n")
-                log_file.flush()
+            top_checkpoints = save_top_checkpoints(model, val_acc, epoch, checkpoints_dir, top_checkpoints)
 
-            if val_f1 > best_val_f1:
-                best_val_f1 = val_f1
-                torch.save(model.state_dict(), os.path.join(checkpoints_dir, "best_f1_model.pt"))
+    # Load best checkpoint
+    if top_checkpoints:
+        model.load_state_dict(torch.load(top_checkpoints[0][2]))
+        print(f"\nLoaded best checkpoint: {top_checkpoints[0][2]}")
 
-            scheduler.step(val_f1)
-
-            top_checkpoints = save_top_checkpoints(model, val_acc, epoch, checkpoints_dir, top_checkpoints, MAX_TOP)
-
-        log_file.close()
-
-    best_model_path = os.path.join(checkpoints_dir, "best_f1_model.pt")
-    if os.path.exists(best_model_path):
-        model.load_state_dict(torch.load(best_model_path))
-        print(f"\nBest model loaded from: {best_model_path}")
-    else:
-        print("Warning: No best model found, using last model state.")
-
-    print("Extracting embeddings...")
-    train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
+    # Extract embeddings
+    train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size), device)
     test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
 
     scaler = StandardScaler()
-    train_embeddings = scaler.fit_transform(train_embeddings)
-    test_embeddings = scaler.transform(test_embeddings)
-
-    clf = MLPClassifier(input_dim=train_embeddings.shape[1], hidden_dim=128, output_dim=6).to(device)
-    clf.train()
-    criterion_clf = nn.CrossEntropyLoss()
-    optimizer_clf = torch.optim.Adam(clf.parameters(), lr=0.001)
-
-    X_train = torch.tensor(train_embeddings, dtype=torch.float32).to(device)
+    X_train = torch.tensor(scaler.fit_transform(train_embeddings), dtype=torch.float32).to(device)
+    X_test = torch.tensor(scaler.transform(test_embeddings), dtype=torch.float32).to(device)
     y_train = train_labels.to(device)
-    X_test = torch.tensor(test_embeddings, dtype=torch.float32).to(device)
 
-    for epoch in range(50):
-        optimizer_clf.zero_grad()
-        output = clf(X_train)
-        loss = criterion_clf(output, y_train)
+    # Train MLP classifier
+    clf = MLPClassifier(X_train.shape[1], 128, output_dim).to(device)
+    clf.train()
+    clf_optim = torch.optim.Adam(clf.parameters(), lr=1e-3)
+    clf_criterion = nn.CrossEntropyLoss()
+
+    for _ in range(50):
+        clf_optim.zero_grad()
+        loss = clf_criterion(clf(X_train), y_train)
         loss.backward()
-        optimizer_clf.step()
+        clf_optim.step()
 
     clf.eval()
     with torch.no_grad():
         y_pred = clf(X_test).argmax(dim=1).cpu()
 
     if test_labels is not None:
-        report = classification_report(test_labels, y_pred)
-        print("\nClassification Report:\n", report)
+        print("\nClassification Report:\n", classification_report(test_labels, y_pred))
 
     os.makedirs("submission", exist_ok=True)
-    df = pd.DataFrame({"id": list(range(len(y_pred))), "pred": y_pred})
-    df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
+    pd.DataFrame({"id": list(range(len(y_pred))), "pred": y_pred}).to_csv(f"submission/testset_{test_set_name}.csv", index=False)
     print(f"Predictions saved to submission/testset_{test_set_name}.csv")
 
 
