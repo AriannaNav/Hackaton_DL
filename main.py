@@ -85,25 +85,30 @@ def main(args):
                 os.makedirs(checkpoints_dir, exist_ok=True)
                 best_model_path = os.path.join(checkpoints_dir, "best_model.pt")
                 torch.save(model.state_dict(), best_model_path)
-                print(f"🟢 Best model updated! Saved to {best_model_path}")
+                print(f" Best model updated! Saved to {best_model_path}")
 
     # === Load Best Checkpoint (if exists) ===
     best_model_path = os.path.join("checkpoints", test_set_name, "best_model.pt")
     if os.path.exists(best_model_path):
         model.load_state_dict(torch.load(best_model_path))
-        print(f"\n🔁 Best model loaded from {best_model_path}")
+        print(f"\n Best model loaded from {best_model_path}")
     else:
-        print(f"⚠️ Warning: Best model not found, using last model state.")
+        print(f" Warning: Best model not found, using last model state.")
 
     # === Embedding + Classifier ===
     print("Extracting embeddings...")
     train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
     test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
+    from sklearn.preprocessing import StandardScaler
+
+    scaler = StandardScaler()
+    train_embeddings = scaler.fit_transform(train_embeddings)
+    test_embeddings = scaler.transform(test_embeddings)
 
     clf = RandomForestClassifier(
-        n_estimators=300,
-        max_depth=20,
-        min_samples_leaf=2,
+        n_estimators=500,
+        max_depth=40,
+        min_samples_leaf=1,
         class_weight='balanced',
         random_state=42,
         n_jobs=-1
