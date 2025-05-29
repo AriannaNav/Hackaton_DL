@@ -6,7 +6,6 @@ import pandas as pd
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score
 from tqdm import tqdm
 
-
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -15,7 +14,6 @@ def set_seed(seed=42):
         torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
 
 def add_node_features(data):
     row, col = data.edge_index
@@ -31,7 +29,6 @@ def add_node_features(data):
     norm_node_id = torch.arange(data.num_nodes).float().view(-1, 1) / (data.num_nodes + 1e-5)
     data.x = torch.cat([deg, in_deg, out_deg, norm_node_id], dim=1)
     return data
-
 
 def train(data_loader, model, optimizer, criterion, device):
     model.train()
@@ -52,7 +49,6 @@ def train(data_loader, model, optimizer, criterion, device):
         total += data.num_graphs
 
     return total_loss / total, correct / total
-
 
 def evaluate(data_loader, model, device, criterion=None, calculate_metrics=False):
     model.eval()
@@ -81,35 +77,10 @@ def evaluate(data_loader, model, device, criterion=None, calculate_metrics=False
 
     return avg_loss, all_preds
 
-
-def save_predictions(preds, test_path):
-    import os
-    test_dir_name = os.path.basename(os.path.dirname(test_path))
-    output_dir = "submission"
-    os.makedirs(output_dir, exist_ok=True)
-    output_csv_path = os.path.join(output_dir, f"testset_{test_dir_name}.csv")
-    df = pd.DataFrame({"id": list(range(len(preds))), "pred": preds})
-    df.to_csv(output_csv_path, index=False)
-    print(f"Predictions saved to {output_csv_path}")
-
-
-def plot_training_progress(train_losses, train_acc, val_losses, val_acc, output_dir):
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(12, 5))
-
-    plt.subplot(1, 2, 1)
-    plt.plot(train_losses, label="Train Loss")
-    plt.plot(val_losses, label="Validation Loss")
-    plt.legend()
-    plt.title("Loss over epochs")
-
-    plt.subplot(1, 2, 2)
-    plt.plot(train_acc, label="Train Accuracy")
-    plt.plot(val_acc, label="Validation Accuracy")
-    plt.legend()
-    plt.title("Accuracy over epochs")
-
-    os.makedirs(output_dir, exist_ok=True)
-    plt.savefig(f"{output_dir}/training_progress.png")
-    plt.close()
-
+def save_top_checkpoints(model, val_acc, epoch, checkpoints_dir, top_checkpoints, max_top=5):
+    model_name = f"model_epoch_{epoch+1}.pth"
+    checkpoint_path = os.path.join(checkpoints_dir, model_name)
+    torch.save(model.state_dict(), checkpoint_path)
+    top_checkpoints.append((val_acc, epoch+1, checkpoint_path))
+    top_checkpoints = sorted(top_checkpoints, key=lambda x: x[0], reverse=True)[:max_top]
+    return top_checkpoints
