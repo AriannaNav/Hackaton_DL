@@ -113,10 +113,10 @@ def plot_training_progress(train_losses, train_acc, val_losses, val_acc, output_
     plt.savefig(f"{output_dir}/training_progress.png")
     plt.close()
 
-def save_top_checkpoints(model, val_acc, epoch, checkpoints_dir, top_checkpoints, MAX_TOP=5):
-    model_name = f"model_epoch_{epoch+1}.pth"
+def save_top_checkpoints(model, val_metric, epoch, checkpoints_dir, top_checkpoints, max_top=5, dataset_name=None):
+    model_name = f"model_{dataset_name}_epoch_{epoch+1}.pth" if dataset_name else f"model_epoch_{epoch+1}.pth"
     checkpoint_path = os.path.join(checkpoints_dir, model_name)
     torch.save(model.state_dict(), checkpoint_path)
-    top_checkpoints.append((val_acc, epoch+1, checkpoint_path))
-    top_checkpoints = sorted(top_checkpoints, key=lambda x: x[0], reverse=True)[:MAX_TOP]
+    top_checkpoints.append((val_metric, epoch+1, checkpoint_path))
+    top_checkpoints = sorted(top_checkpoints, key=lambda x: x[0], reverse=True)[:max_top]
     return top_checkpoints
