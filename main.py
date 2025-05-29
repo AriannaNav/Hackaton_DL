@@ -5,10 +5,12 @@ import pandas as pd
 from torch_geometric.loader import DataLoader
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
+from sklearn.preprocessing import StandardScaler
 from source.load_data import GraphDataset
 from source.models import ImprovedGINE as ImprovedNNConv
 from source.utils import set_seed, add_node_features, train, evaluate
 from collections import Counter
+
 
 def extract_embeddings(model, data_loader, device):
     model.eval()
@@ -23,6 +25,7 @@ def extract_embeddings(model, data_loader, device):
                 labels.append(data.y.cpu())
     return torch.cat(embeddings, dim=0), torch.cat(labels, dim=0) if len(labels) > 0 else None
 
+
 def compute_class_weights(dataset, num_classes=6):
     labels = [data.y.item() for data in dataset if data.y is not None]
     label_counts = Counter(labels)
@@ -31,6 +34,7 @@ def compute_class_weights(dataset, num_classes=6):
     weights = 1.0 / (freqs + 1e-8)
     weights = weights / weights.sum()
     return weights
+
 
 def main(args):
     set_seed(42)
@@ -67,39 +71,43 @@ def main(args):
 
     # === Training ===
     best_val_acc = 0.0
+    top_checkpoints = []
+    MAX_TOP = 5
+    checkpoints_dir = os.path.join("checkpoints", test_set_name)
+    os.makedirs(checkpoints_dir, exist_ok=True)
+
     if train_loader:
         for epoch in range(args.epochs):
             train_loss, train_acc = train(train_loader, model, optimizer, criterion, device)
+            val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
 
-            if (epoch + 1) % 5 == 0 or (epoch + 1) == args.epochs:
-                val_loss, val_acc, val_f1, val_prec, val_rec = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
-                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
-            else:
-                val_loss, val_acc, _, _, _ = evaluate(val_loader, model, device, criterion, calculate_metrics=True)
-                print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+            print(f"Epoch {epoch+1}/{args.epochs} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | Acc: {val_acc:.4f} | F1: {val_f1:.4f} | Prec: {val_prec:.4f} | Rec: {val_rec:.4f}")
 
-            # === Save Best Checkpoint ===
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
-                checkpoints_dir = os.path.join("checkpoints", test_set_name)
-                os.makedirs(checkpoints_dir, exist_ok=True)
-                best_model_path = os.path.join(checkpoints_dir, "best_model.pt")
-                torch.save(model.state_dict(), best_model_path)
-                print(f" Best model updated! Saved to {best_model_path}")
+            # === Save Top 5 Checkpoints ===
+            if val_acc > best_val_acc or len(top_checkpoints) < MAX_TOP:
+                checkpoint_path = os.path.join(checkpoints_dir, f"model_epoch_{epoch+1:02d}_acc_{val_acc:.4f}.pt")
+                torch.save(model.state_dict(), checkpoint_path)
+                top_checkpoints.append((val_acc, epoch+1, checkpoint_path))
+                top_checkpoints = sorted(top_checkpoints, key=lambda x: x[0], reverse=True)[:MAX_TOP]
+                best_val_acc = top_checkpoints[0][0]
+                print(f"Checkpoint salvato: {checkpoint_path}")
 
-    # === Load Best Checkpoint (if exists) ===
-    best_model_path = os.path.join("checkpoints", test_set_name, "best_model.pt")
-    if os.path.exists(best_model_path):
+        print("\n Top 5 checkpoints:")
+        for acc, ep, path in top_checkpoints:
+            print(f" - Epoch {ep} | Acc: {acc:.4f} | File: {path}")
+
+    # === Load Best Checkpoint ===
+    if top_checkpoints:
+        best_model_path = top_checkpoints[0][2]
         model.load_state_dict(torch.load(best_model_path))
         print(f"\n Best model loaded from {best_model_path}")
     else:
-        print(f" Warning: Best model not found, using last model state.")
+        print("Warning: No best model found, using last model state.")
 
     # === Embedding + Classifier ===
     print("Extracting embeddings...")
     train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
     test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
-    from sklearn.preprocessing import StandardScaler
 
     scaler = StandardScaler()
     train_embeddings = scaler.fit_transform(train_embeddings)
@@ -113,7 +121,7 @@ def main(args):
         random_state=42,
         n_jobs=-1
     )
-    
+
     clf.fit(train_embeddings, train_labels)
     y_pred = clf.predict(test_embeddings)
 
@@ -126,7 +134,8 @@ def main(args):
     df = pd.DataFrame({"id": list(range(len(y_pred))), "pred": y_pred})
     df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
     print(f"Predictions saved to submission/testset_{test_set_name}.csv")
-    
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--train_path", type=str, default="./datasets/A/train.json.gz")
