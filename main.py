@@ -91,7 +91,15 @@ def main(args):
     train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
     test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
 
-    clf = RandomForestClassifier(n_estimators=200, max_depth=10, class_weight='balanced')
+    clf = RandomForestClassifier(
+    n_estimators=300,
+    max_depth=20,
+    min_samples_leaf=2,
+    class_weight='balanced',
+    random_state=42,
+    n_jobs=-1
+    )
+    
     clf.fit(train_embeddings, train_labels)
     y_pred = clf.predict(test_embeddings)
 
