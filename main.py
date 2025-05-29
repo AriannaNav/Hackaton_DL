@@ -3,7 +3,7 @@ import os
 import torch
 import pandas as pd
 from torch_geometric.loader import DataLoader
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 from source.load_data import GraphDataset
 from source.models import ImprovedGINE as ImprovedNNConv
@@ -91,7 +91,7 @@ def main(args):
     train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
     test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
 
-    clf = LogisticRegression(C=0.01, penalty='l2', solver='lbfgs', max_iter=1000)
+    clf = RandomForestClassifier(n_estimators=200, max_depth=10, class_weight='balanced')
     clf.fit(train_embeddings, train_labels)
     y_pred = clf.predict(test_embeddings)
 
@@ -112,4 +112,4 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=10)
     args = parser.parse_args()
     main(args)
-      
+
