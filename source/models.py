@@ -4,7 +4,7 @@ from torch.nn import Linear, ModuleList, Dropout, BatchNorm1d, Sequential, ReLU
 from torch_geometric.nn import GINEConv, global_mean_pool
 
 class ImprovedGINE(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim=128, output_dim=6, edge_dim=7, dropout_p=0.1):
+    def __init__(self, input_dim, hidden_dim=128, output_dim=6, edge_dim=7, dropout_p=0.3):
         super(ImprovedGINE, self).__init__()
 
         self.x_encoder = Linear(input_dim, hidden_dim)
@@ -13,7 +13,7 @@ class ImprovedGINE(torch.nn.Module):
         self.convs = ModuleList()
         self.bns = ModuleList()
 
-        for _ in range(5):  # Aumentato a 5 GINE layers
+        for _ in range(4):  # 4 GINE layers
             nn = Sequential(
                 Linear(hidden_dim, hidden_dim),
                 ReLU(),

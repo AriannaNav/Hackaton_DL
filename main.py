@@ -2,12 +2,10 @@ import argparse
 import os
 import torch
 import pandas as pd
-import numpy as np
 from torch_geometric.loader import DataLoader
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 from source.load_data import GraphDataset
 from source.models import ImprovedGINE as ImprovedNNConv
 from source.utils import set_seed, add_node_features, train, evaluate
@@ -41,7 +39,7 @@ def main(args):
     test_set_name = args.test_path.split("/")[-2]
 
     input_dim = 4
-    hidden_dim = 64
+    hidden_dim = 128
     output_dim = 6
     model = ImprovedNNConv(input_dim, hidden_dim, output_dim).to(device)
 
@@ -58,7 +56,7 @@ def main(args):
 
         weights = compute_class_weights(train_set)
         criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)
     else:
         train_loader = val_loader = criterion = optimizer = None
 
@@ -102,47 +100,34 @@ def main(args):
         log_file.close()
 
     if top_checkpoints:
-        best_embs_train = []
-        best_embs_test = []
-        for acc, _, path in top_checkpoints[:3]:
-            model.load_state_dict(torch.load(path))
-            model.eval()
-            emb_train, _ = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size), device)
-            emb_test, _ = extract_embeddings(model, test_loader, device)
-            best_embs_train.append(emb_train.numpy())
-            best_embs_test.append(emb_test.numpy())
-        train_embeddings = np.mean(best_embs_train, axis=0)
-        test_embeddings = np.mean(best_embs_test, axis=0)
+        best_model_path = top_checkpoints[0][2]
+        model.load_state_dict(torch.load(best_model_path))
+        print(f"\nBest model loaded from: {best_model_path}")
     else:
-        train_embeddings, _ = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size), device)
-        test_embeddings, _ = extract_embeddings(model, test_loader, device)
-        train_embeddings = train_embeddings.numpy()
-        test_embeddings = test_embeddings.numpy()
+        print("Warning: No best model found, using last model state.")
+
+    print("Extracting embeddings...")
+    train_embeddings, train_labels = extract_embeddings(model, DataLoader(train_dataset, batch_size=batch_size, num_workers=2), device)
+    test_embeddings, test_labels = extract_embeddings(model, test_loader, device)
 
     scaler = StandardScaler()
     train_embeddings = scaler.fit_transform(train_embeddings)
     test_embeddings = scaler.transform(test_embeddings)
 
-    pca = PCA(n_components=64)
-    train_embeddings = pca.fit_transform(train_embeddings)
-    test_embeddings = pca.transform(test_embeddings)
-
     clf = RandomForestClassifier(
-        n_estimators=1000,
-        max_depth=60,
-        min_samples_leaf=2,
-        class_weight='balanced_subsample',
+        n_estimators=500,
+        max_depth=40,
+        min_samples_leaf=1,
+        class_weight='balanced',
         random_state=42,
         n_jobs=-1
     )
 
-    train_labels = np.array([data.y.item() for data in train_dataset])
     clf.fit(train_embeddings, train_labels)
     y_pred = clf.predict(test_embeddings)
 
-    if test_dataset[0].y is not None:
-        true_labels = np.array([data.y.item() for data in test_dataset])
-        report = classification_report(true_labels, y_pred)
+    if test_labels is not None:
+        report = classification_report(test_labels, y_pred)
         print("\nClassification Report:\n", report)
 
     os.makedirs("submission", exist_ok=True)
@@ -157,3 +142,4 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=100)
     args = parser.parse_args()
     main(args)
+    
