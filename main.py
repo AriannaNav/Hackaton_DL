@@ -10,7 +10,6 @@ from source.load_data import GraphDataset
 from source.models import ImprovedGINE
 from source.utils import set_seed, add_node_features, train, evaluate, save_top_checkpoints
 
-
 def extract_embeddings(model, data_loader, device):
     model.eval()
     embeddings = []
@@ -22,13 +21,12 @@ def extract_embeddings(model, data_loader, device):
             embeddings.append(emb.cpu())
             if data.y is not None:
                 labels.append(data.y.cpu())
-    return torch.cat(embeddings, dim=0), torch.cat(labels, dim=0) if len(labels) > 0 else None
-
+    return torch.cat(embeddings, dim=0), torch.cat(labels, dim=0) if labels else None
 
 def main(args):
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    test_set_name = args.test_path.split("/")[-2]
+    test_set_name = os.path.basename(os.path.dirname(args.test_path))
 
     input_dim = 4
     hidden_dim = 64
@@ -54,6 +52,7 @@ def main(args):
 
     test_loader = DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
 
+    best_val_f1 = 0.0
     top_checkpoints = []
     MAX_TOP = 5
     checkpoints_dir = os.path.join("checkpoints", test_set_name)
@@ -75,12 +74,16 @@ def main(args):
                 log_file.write(f"{epoch+1},{train_loss:.4f},{val_loss:.4f},{val_acc:.4f},{val_f1:.4f},{val_prec:.4f},{val_rec:.4f}\n")
                 log_file.flush()
 
-            top_checkpoints = save_top_checkpoints(model, val_f1, epoch, checkpoints_dir, top_checkpoints, MAX_TOP, dataset_name=test_set_name)
+            scheduler.step(val_f1)
+
+            # Salvataggio dei top 5 checkpoint
+            top_checkpoints = save_top_checkpoints(model, val_acc, epoch, checkpoints_dir, top_checkpoints, MAX_TOP)
 
         log_file.close()
 
-    best_model_path = top_checkpoints[0][2] if top_checkpoints else None
-    if best_model_path and os.path.exists(best_model_path):
+    # Caricamento del miglior modello
+    if top_checkpoints:
+        best_model_path = top_checkpoints[0][1]
         model.load_state_dict(torch.load(best_model_path))
         print(f"\nBest model loaded from: {best_model_path}")
     else:
@@ -106,7 +109,6 @@ def main(args):
     df = pd.DataFrame({"id": list(range(len(y_pred))), "pred": y_pred})
     df.to_csv(f"submission/testset_{test_set_name}.csv", index=False)
     print(f"Predictions saved to submission/testset_{test_set_name}.csv")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
